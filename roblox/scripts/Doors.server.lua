@@ -1,6 +1,6 @@
--- Automatic sliding doors: they open when a player or a shopper comes close and
--- close again when nobody is near. Each door is a Model with panels L and R and
--- a NumberValue "Slide" (how far each panel moves, in studs).
+-- Automatic sliding doors, in the mall and the VAYU hotel: they open when a player or a
+-- shopper comes close and close again when nobody is near. Each door is a Model named
+-- AutoDoor with panels L and R and a NumberValue "Slide" (how far each panel moves, in studs).
 local Players = game:GetService("Players")
 local TweenService = game:GetService("TweenService")
 
@@ -8,9 +8,9 @@ local RANGE = 14
 local INFO = TweenInfo.new(0.6, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
 
 local doors = {}
-for _, model in ipairs(workspace.Mall.Doors:GetChildren()) do
+for _, model in ipairs(workspace:GetDescendants()) do
 	local l, r, slide = model:FindFirstChild("L"), model:FindFirstChild("R"), model:FindFirstChild("Slide")
-	if l and r and slide then
+	if model:IsA("Model") and model.Name == "AutoDoor" and l and r and slide then
 		table.insert(doors, {
 			l = l,
 			r = r,

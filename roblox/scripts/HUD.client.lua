@@ -1,4 +1,5 @@
--- Welcome card when you join, and a label showing which floor you are on.
+-- Welcome card when you join, and a label showing which mall floor or city district you
+-- are in.
 local Players = game:GetService("Players")
 local TweenService = game:GetService("TweenService")
 
@@ -6,6 +7,8 @@ local player = Players.LocalPlayer
 local FLOORS = __FLOORS__ -- { y = floor top in studs, name, note }
 local FOOTPRINTS = __FOOTPRINTS__ -- each floor's outline, { x, z } in studs
 local TERRACE = __TERRACE__
+local DISTRICTS = __DISTRICTS__ -- { name, x0, z0, x1, z1 } in studs, first match wins
+local BLVD = __BLVD__ -- the boulevard: a point on its edge, its direction and the road's span across
 
 local function inside(x, z, poly)
 	local c = false
@@ -32,8 +35,9 @@ local function corner(parent, r)
 end
 
 local card = Instance.new("Frame")
-card.Size = UDim2.new(0, 330, 0, 168)
-card.Position = UDim2.new(0, 16, 0, 16)
+card.AnchorPoint = Vector2.new(0.5, 0)
+card.Size = UDim2.new(0, 360, 0, 196)
+card.Position = UDim2.new(0.5, 0, 0, 64)
 card.BackgroundColor3 = Color3.fromRGB(14, 20, 24)
 card.BackgroundTransparency = 0.15
 card.Parent = gui
@@ -47,7 +51,7 @@ title.Font = Enum.Font.GothamBlack
 title.TextSize = 26
 title.TextXAlignment = Enum.TextXAlignment.Left
 title.TextColor3 = Color3.fromRGB(120, 225, 245)
-title.Text = "GLASS MALL"
+title.Text = "GLASS CITY"
 title.Parent = card
 
 local body = Instance.new("TextLabel")
@@ -60,19 +64,20 @@ body.TextWrapped = true
 body.TextXAlignment = Enum.TextXAlignment.Left
 body.TextYAlignment = Enum.TextYAlignment.Top
 body.TextColor3 = Color3.fromRGB(225, 233, 236)
-body.Text = "Walk in through the glass doors on the court.\n"
-	.. "Escalators by the atrium and the lift beside the shops reach every floor.\n"
-	.. "2F food court  ·  3F arcade  ·  4F cinemas and roof terrace"
+body.Text = "The Glass Mall now sits in a whole city.\n"
+	.. "Get a car at a glowing pad, or press E by any parked car.\n"
+	.. "Travel (left) jumps to any district. Collect the gold coins.\n"
+	.. "Mall: 2F food court  ·  3F arcade  ·  4F cinemas"
 body.Parent = card
 
 task.delay(16, function()
-	TweenService:Create(card, TweenInfo.new(1), { Position = UDim2.new(0, -360, 0, 16) }):Play()
+	TweenService:Create(card, TweenInfo.new(1), { Position = UDim2.new(0.5, 0, 0, -260) }):Play()
 end)
 
 local pill = Instance.new("TextLabel")
-pill.AnchorPoint = Vector2.new(0.5, 1)
 pill.Size = UDim2.new(0, 330, 0, 40)
-pill.Position = UDim2.new(0.5, 0, 1, -18)
+pill.Position = UDim2.new(0.5, 0, 0, 14)
+pill.AnchorPoint = Vector2.new(0.5, 0)
 pill.BackgroundColor3 = Color3.fromRGB(14, 20, 24)
 pill.BackgroundTransparency = 0.2
 pill.Font = Enum.Font.GothamMedium
@@ -81,6 +86,20 @@ pill.TextColor3 = Color3.new(1, 1, 1)
 pill.Text = ""
 pill.Parent = gui
 corner(pill, 20)
+
+local function district(p)
+	local rel = Vector3.new(p.X, 0, p.Z) - BLVD.a
+	local d, t = rel:Dot(BLVD.out), rel:Dot(BLVD.dir)
+	if d > BLVD.lo and d < BLVD.hi and t > BLVD.t0 and t < BLVD.t1 then
+		return "Glass Boulevard"
+	end
+	for _, r in ipairs(DISTRICTS) do
+		if p.X >= r[2] and p.X <= r[4] and p.Z >= r[3] and p.Z <= r[5] then
+			return r[1]
+		end
+	end
+	return "Glass Hills"
+end
 
 local function where()
 	local root = player.Character and player.Character:FindFirstChild("HumanoidRootPart")
@@ -101,10 +120,7 @@ local function where()
 	if idx == #FLOORS and inside(p.X, p.Z, TERRACE) then
 		return "Roof terrace"
 	end
-	if idx == 1 then
-		return "Outside  ·  entrance court"
-	end
-	return f.name
+	return district(p)
 end
 
 while true do

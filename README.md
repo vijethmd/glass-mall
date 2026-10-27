@@ -45,13 +45,26 @@ Then open http://localhost:8766. `index.html` is a page fragment (no `<html>` or
 
 Step-by-step publishing instructions are in [`roblox/PUBLISH.md`](roblox/PUBLISH.md).
 
-`roblox/GlassMall.rbxlx` is the same mall as a walkable Roblox place, built from the same traced floor plans (3.5 studs per metre). To open it, double-click the file to open it in Roblox Studio, press **Play** to try it, then use **File › Publish to Roblox** to publish it. New experiences start private; to open it to everyone, go to **Game Settings › Permissions** and set it to public.
+`roblox/GlassMall.rbxlx` is the mall as a Roblox place, built from the same traced floor plans (3.5 studs per metre), set in **Glass City**, a drivable city of about 10,000 parts. To open it, double-click the file to open it in Roblox Studio and press **Play** to try it.
 
-**What's in it:**
+**The mall:**
 - **Getting around:** automatic sliding doors on the court and at the roof terrace. Escalators by the atrium carry you up, and a glass lift by the shops has floor buttons and call buttons on every landing.
 - **Each floor:** shops on every floor, a food court with seats on 2F, an arcade on 3F, and two cinemas with stepped seating and screens on 4F, plus a planted roof terrace.
-- **Life:** shoppers walk in from the street, visit a few places and leave. Cars drive the main road.
-- **Atmosphere:** a 16-minute day–night cycle with street lights at dusk, an animated LED wall, and a floor indicator on screen.
+- **Life:** shoppers walk in from the street, visit a few places and leave.
+
+**The city round it** (about 830 × 1,140 m):
+- **Roads:** a ring highway with a median and lamp posts, a grid of avenues and streets, and the boulevard past the mall running corner to corner. AI traffic loops the ring and runs the boulevard, two avenues and a street, keeping left as in Bengaluru.
+- **Districts:** suburbs of houses with driveways and gardens, midtown offices, downtown towers round a plaza with a fountain and an LED screen, uptown apartments with roof gardens, and the mall car park.
+- **Central Park:** a lake with rowing boats that float, a jetty, paths, benches, a gazebo and a playground.
+- **VAYU Hotel:** the VAYU project's 5-star hotel, imported from its model file (`roblox/data/vayu_model.json`), with sliding doors into the lobby and a portal up to the sky pool.
+- **Stunt park:** a 16 m mega ramp, two jumps, a quarter pipe, knock-over cones, a drift circle and the GLASSTOP FUEL station.
+- **Glass Bay:** a boardwalk with palms, beach umbrellas, a lifeguard tower and a pier into the sea, plus grassy hills round the city.
+
+**Playing:**
+- **Cars:** hold **E** on any glowing *Get a car* pad for your own car, or press **E** by any of the 36 parked cars. Drive with W/A/S/D and press Space to get out. Each car is a physics car on hinge motors, steered by servos, with a speedometer and headlights at night. Cars that roll over are put back on their wheels.
+- **Travel:** the Travel button jumps to 13 places, from the mall to the pier.
+- **Coins:** 105 gold coins on roads, ramps, rooftops and the pier. Collect them on foot or by car; your total is on the leaderboard and saved between visits.
+- **Atmosphere:** a 16-minute day–night cycle. At dusk the street lights come on and the windows across the city light up. A label at the top shows your mall floor or city district.
 
 To rebuild the place after changing `roblox/build_place.py` or `roblox/scripts/*.lua`:
 

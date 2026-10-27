@@ -1,5 +1,9 @@
--- Animates the LED wall, cinema screens and arcade marquees on each player's screen.
+-- Animates the LED walls, cinema screens and arcade marquees, and spins the coins, on
+-- each player's screen.
 local RunService = game:GetService("RunService")
+
+local coins = workspace:WaitForChild("Coins")
+local home = setmetatable({}, { __mode = "k" }) -- each coin's resting position
 
 local gradients = {}
 local function track(d)
@@ -23,5 +27,13 @@ RunService.RenderStepped:Connect(function(dt)
 		else
 			table.remove(gradients, i)
 		end
+	end
+	for i, coin in ipairs(coins:GetChildren()) do
+		local p = home[coin]
+		if not p then
+			p = coin.Position
+			home[coin] = p
+		end
+		coin.CFrame = CFrame.new(p + Vector3.new(0, math.sin(t * 2 + i) * 0.4, 0)) * CFrame.Angles(0, t * 2.5 + i, 0)
 	end
 end)
