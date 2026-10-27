@@ -462,7 +462,7 @@ for (const L of LEVELS) {
   real.add(mesh(coreGeoms(z, h), M.core));
   // columns: every grid point that holds up this level or one above it
   const cols = COLS.filter((p) => above.slice(idx).some((U) => inside(p, POLY[U.poly])))
-    .map((p) => { const c = new THREE.CylinderGeometry(0.26, 0.26, h - 0.35, 16); c.rotateX(Math.PI / 2); c.translate(p.x, p.y, z + (h - 0.35) / 2); return c; });
+    .map((p) => { const c = new THREE.CylinderGeometry(0.26, 0.26, h, 16); c.rotateX(Math.PI / 2); c.translate(p.x, p.y, z + h / 2); return c; });   // full storey height, so columns read as one piece where there is no slab
   if (cols.length) real.add(mesh(cols, M.column));
   // envelope
   if (L.id === '4F') {
