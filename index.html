@@ -208,7 +208,7 @@ const PX = {
 };
 const POLY = Object.fromEntries(Object.entries(PX).map(([k, v]) => [k, v.map(P)]));
 const CORES = [[995, 337, 1055, 392], [1225, 337, 1265, 460], [1318, 337, 1395, 452], [1310, 505, 1393, 565], [1350, 565, 1393, 602]]
-  .map(([a, b, c, d]) => { const p = P([a, d]), q = P([c, b]); return [p.x, p.y, q.x, q.y]; });
+  .map(([a, b, c, d]) => { const p = P([a, d]), q = P([c, b]); return [p.x, p.y, Math.min(q.x, P([1395, 0]).x - 0.3), Math.min(q.y, P([0, 337]).y - 0.3)]; });   // set back from the glass line
 // atrium: an 8.1 m square turned 39°, escalators along its north-east and south-west sides
 const AC = P([1145, 491]);
 const A_SIDE = 95 * S;
@@ -312,6 +312,12 @@ const T = {
     for (let i = 0; i < 12; i++) for (let j = 0; j < 6; j++) { g.fillStyle = (i + j) % 2 ? '#142542' : '#13223d'; g.fillRect(4 + i * cw + 0.6, 4 + j * ch + 0.6, cw - 1.2, ch - 1.2); }
     g.strokeStyle = '#a9b1ba'; g.lineWidth = 3; g.strokeRect(1.5, 1.5, w - 3, h - 3);
   }, [2, 1]),
+  clad: tex(256, 256, (g, w, h) => {                   // aluminium composite panels, 1.5 x 1 m
+    g.fillStyle = '#e6e9eb'; g.fillRect(0, 0, w, h);
+    g.fillStyle = 'rgba(70,80,88,.35)';
+    for (let x = 0; x <= w; x += 64) g.fillRect(x - 1, 0, 2, h);
+    for (let y = 0; y <= h; y += 64) g.fillRect(0, y - 1, w, 2);
+  }, [6, 4]),
   steps: tex(64, 64, (g, w, h) => { g.fillStyle = '#9aa1a6'; g.fillRect(0, 0, w, h); g.fillStyle = '#6d7479'; for (let y = 0; y < h; y += 8) g.fillRect(0, y, w, 2); }, [1, 0.4]),
 };
 // LED media screen on the multiplex: redrawn every frame
@@ -339,13 +345,15 @@ drawLED(0);
 
 // ------------------------------------------------------------------ materials
 const M = {
-  glass: new THREE.MeshPhysicalMaterial({ color: 0xc4dde2, metalness: 0, roughness: 0.02, transmission: 1, thickness: 0.04, ior: 1.5, envMapIntensity: 1.5, specularIntensity: 1, side: THREE.DoubleSide }),
+  // thin low-e glazing: light passes straight through (no thickness, no blur); reflections come from a capture of the real surroundings
+  glass: new THREE.MeshPhysicalMaterial({ color: 0xa9bfc2, metalness: 0, roughness: 0, transmission: 1, thickness: 0, ior: 2.0, specularIntensity: 1, envMapIntensity: 1.6, side: THREE.DoubleSide }),
   glassThin: new THREE.MeshPhysicalMaterial({ color: 0xd6eef2, roughness: 0.05, transparent: true, opacity: 0.22, envMapIntensity: 1.2, depthWrite: false, side: THREE.DoubleSide }),
   frit: new THREE.MeshPhysicalMaterial({ map: T.frit, metalness: 0.45, roughness: 0.12, clearcoat: 1, clearcoatRoughness: 0.05, envMapIntensity: 1.3 }),
   led: new THREE.MeshBasicMaterial({ map: ledTex, toneMapped: false }),
   alu: new THREE.MeshStandardMaterial({ color: 0xeef0f1, metalness: 0.25, roughness: 0.32 }),
+  clad: new THREE.MeshStandardMaterial({ map: T.clad, metalness: 0.3, roughness: 0.42 }),
   mullion: new THREE.MeshStandardMaterial({ color: 0xb9c1c6, metalness: 0.75, roughness: 0.28 }),
-  floor: new THREE.MeshStandardMaterial({ map: T.floor, roughness: 0.2, metalness: 0.05 }),
+  floor: new THREE.MeshStandardMaterial({ map: T.floor, roughness: 0.45, metalness: 0 }),
   ceiling: new THREE.MeshStandardMaterial({ color: 0xf2f1ee, roughness: 0.8, emissive: 0xfff0dc, emissiveMap: T.ceiling, emissiveIntensity: 0, side: THREE.DoubleSide }),
   column: new THREE.MeshStandardMaterial({ color: 0xf4f4f2, roughness: 0.4 }),
   core: new THREE.MeshStandardMaterial({ color: 0xdfe3e5, metalness: 0.2, roughness: 0.4 }),
@@ -383,6 +391,11 @@ function boxBetween(a, b, z0, h, t, out = 0, metreUV = false) {   // a vertical 
   g.rotateZ(ang); g.translate((a.x + b.x) / 2 + n.x, (a.y + b.y) / 2 + n.y, z0 + h / 2);
   return g;
 }
+function planeBetween(a, b, z0, h) {               // one glass surface along a→b
+  const d = b.clone().sub(a), g = new THREE.PlaneGeometry(d.length(), h);
+  g.rotateX(Math.PI / 2); g.rotateZ(Math.atan2(d.y, d.x)); g.translate((a.x + b.x) / 2, (a.y + b.y) / 2, z0 + h / 2);
+  return g;
+}
 const clean = (g) => { for (const k of Object.keys(g.attributes)) if (!['position', 'normal', 'uv'].includes(k)) g.deleteAttribute(k); return g.index ? g.toNonIndexed() : g; };
 const merge = (gs) => mergeGeometries(gs.map(clean));
 function mesh(geoms, mat, cast = true, recv = true) {
@@ -400,8 +413,8 @@ function curtainWall(real, segs, z0, h, kind) {
   for (const [a, b, mat] of segs) {
     const m = mat || kind;
     const panelH = h - 0.35;
-    if (m === 'glass') glass.push(boxBetween(a, b, z0, panelH, 0.04));
-    else other.push([boxBetween(a, b, z0, panelH, 0.12, 0, m === 'frit'), m]);
+    if (m === 'glass') glass.push(planeBetween(a, b, z0, panelH));
+    else other.push([boxBetween(a, b, z0, panelH, 0.12, 0, m === 'frit' || m === 'clad'), m]);
     if (m === 'glass') {
       const d = b.clone().sub(a), L = d.length(), n = Math.max(1, Math.round(L / 1.5));
       for (let i = 0; i <= n; i++) {
@@ -476,8 +489,8 @@ for (const L of LEVELS) {
     const roofG = new THREE.Group(); real.add(roofG); roofParts.push(roofG);
     roofG.add(mesh([slabGeom(poly, ROOF_Z - 0.35, 0.5, [HOLE])], M.alu));
     const lantern = HOLE.map((p, i) => [p, HOLE[(i + 1) % 4]]);
-    const lg = lantern.map(([a, b]) => boxBetween(a, b, ROOF_Z + 0.15, 2.4, 0.04));
-    const lt = new THREE.Mesh(slabGeom(HOLE, ROOF_Z + 2.55, 0.05), M.glass);
+    const lg = lantern.map(([a, b]) => planeBetween(a, b, ROOF_Z + 0.15, 2.4));
+    const lt = new THREE.Mesh(flatGeom(HOLE, ROOF_Z + 2.58), M.glass);
     const lgm = mesh(lg, M.glass, false, false); roofG.add(lgm, lt); transparentWalls.push(lgm, lt);
     const frame = [];
     for (const [a, b] of lantern) {
@@ -504,7 +517,9 @@ for (const L of LEVELS) {
       const p = P([a, d]), q = P([c, b]); const g2 = new THREE.BoxGeometry(q.x - p.x, q.y - p.y, 2.2); g2.translate((p.x + q.x) / 2, (p.y + q.y) / 2, ROOF_Z + 1.25); return g2;
     }).concat(coreGeoms(ROOF_Z, 2.6, CORES.slice(1, 2)).concat(coreGeoms(ROOF_Z, 2.6, CORES.slice(4)))), M.alu));
   } else {
-    curtainWall(real, edgesOf(poly), z, h, 'glass');
+    const NORTH = POLY.GF[0].y, EAST = POLY.GF[1].x, near = (u, v) => Math.abs(u - v) < 0.05;
+    curtainWall(real, edgesOf(poly).map(([a, b]) => [a, b,
+      near(a.y, NORTH) && near(b.y, NORTH) ? 'clad' : (L.id === 'GF' && near(a.x, EAST) && near(b.x, EAST) ? 'clad' : 'glass')]), z, h, 'glass');
   }
   if (L.id === '3F') {   // roof terrace where the multiplexes step back
     const t = [P([698, 830]), P([1010, 830]), P([1010, 980])];
@@ -567,7 +582,7 @@ const site = new THREE.Group(); root.add(site);
     const list = all.filter((q) => q[0] === id); if (!list.length) continue;
     const im = new THREE.InstancedMesh(cap, M.people, list.length), m4 = new THREE.Matrix4(), c = new THREE.Color();
     list.forEach(([, x, y, z], i) => { m4.makeTranslation(x, y, z + 0.82); im.setMatrixAt(i, m4); im.setColorAt(i, c.set(pal[i % pal.length])); });
-    im.castShadow = true;
+    im.castShadow = true; im.userData.near = true;
     (id === 'court' ? site : groups[id].real).add(im);
   }
 }
@@ -580,24 +595,25 @@ const ext = (k) => [diagA.clone().add(dDir.clone().multiplyScalar(-300)), diagB.
 function band(k0, k1) { const [a0, b0] = ext(k0), [a1, b1] = ext(k1); return [a0, b0, b1, a1]; }
 const groundMat = new THREE.MeshStandardMaterial({ color: 0xd2ccc0, roughness: 1 });
 const ground = new THREE.Mesh(new THREE.PlaneGeometry(6000, 6000), groundMat); ground.position.set(CX, CY, -0.08); ground.receiveShadow = true; site.add(ground);
+const reflectables = [ground];   // far scenery for the glass reflections
 const sitePoly = [P([575, 270]), P([1474, 270]), P([1474, 1195]), P([575, 772])];
-site.add(mesh([flatGeom(sitePoly, -0.03)], new THREE.MeshStandardMaterial({ map: T.grass, roughness: 1 }), false));
+{ const lawn = mesh([flatGeom(sitePoly, -0.03)], new THREE.MeshStandardMaterial({ map: T.grass, roughness: 1 }), false); site.add(lawn); reflectables.push(lawn); }
 const paveMat = new THREE.MeshStandardMaterial({ map: T.pavers, roughness: 0.85 });
 site.add(mesh([flatGeom([P([950, 733]), P([1230, 733]), P([1185, 1048]), P([830, 876])], 0.0)], paveMat, false));
 site.add(mesh([flatGeom([P([657, 733]), P([1395, 733]), P([1395, 760]), P([657, 760])], -0.005)], paveMat, false));
 site.add(mesh([flatGeom(band(0, 5.5), -0.01)], paveMat, false));
-site.add(mesh([flatGeom(band(5.5, 25), -0.02)], new THREE.MeshStandardMaterial({ map: T.asphalt, roughness: 0.95 }), false));
-site.add(mesh([flatGeom([P([440, -400]), P([560, -400]), P([560, 2000]), P([440, 2000])], -0.025)], new THREE.MeshStandardMaterial({ map: T.asphalt, roughness: 0.95 }), false));
-site.add(mesh([flatGeom([P([1480, -400]), P([1570, -400]), P([1570, 2000]), P([1480, 2000])], -0.025)], new THREE.MeshStandardMaterial({ map: T.asphalt, roughness: 0.95 }), false));
+for (const pts of [band(5.5, 25), [P([440, -400]), P([560, -400]), P([560, 2000]), P([440, 2000])], [P([1480, -400]), P([1570, -400]), P([1570, 2000]), P([1480, 2000])]]) {
+  const road = mesh([flatGeom(pts, -0.02)], new THREE.MeshStandardMaterial({ map: T.asphalt, roughness: 0.95 }), false); site.add(road); reflectables.push(road);
+}
 { // lane marks
   const g = []; const [a, b] = ext(15.2), d = b.clone().sub(a), L = d.length();
   for (let s = 0; s < L; s += 9) { const p = a.clone().add(d.clone().multiplyScalar(s / L)); g.push(boxBetween(p, p.clone().add(dDir.clone().multiplyScalar(4)), 0.0, 0.01, 0.18)); }
   site.add(mesh(g, new THREE.MeshBasicMaterial({ color: 0xe8e3d6 }), false, false));
 }
 // the feature wall along the road and the drop-off ramp from the drawing
-site.add(mesh([boxBetween(P([830, 876]), P([1180, 1045]), 0, 1.2, 0.9)], M.alu));
+{ const fw = mesh([boxBetween(P([830, 876]), P([1180, 1045]), 0, 1.2, 0.9)], M.alu); fw.userData.near = true; site.add(fw); }
 const ledStrip = new THREE.Mesh(boxBetween(P([830, 876]), P([1180, 1045]), 1.2, 0.06, 0.95), new THREE.MeshBasicMaterial({ color: 0x9fe8ff, toneMapped: false }));
-site.add(ledStrip);
+ledStrip.userData.near = true; site.add(ledStrip);
 site.add(mesh([flatGeom([P([1055, 733]), P([1125, 733]), P([1065, 965]), P([1000, 935])], 0.012)], new THREE.MeshStandardMaterial({ color: 0x8d9396, roughness: 0.7 }), false));
 // trees
 const SPEC = [['#5e7f39', '#6f8f45', '#526f31'], ['#4b6a30', '#587a37', '#62843d'], ['#d8471d', '#e85d24', '#5d7c35'], ['#e48db3', '#f0a6c5', '#6b8a42']];
@@ -624,8 +640,8 @@ const treeSpots = [];
     }
   }
   const fm = new THREE.Mesh(mergeGeometries(fol), new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.9, flatShading: true }));
-  fm.castShadow = fm.receiveShadow = true; site.add(fm);
-  const tm = mesh(tr, new THREE.MeshStandardMaterial({ color: 0x5b4636, roughness: 0.95 })); site.add(tm);
+  fm.castShadow = fm.receiveShadow = true; fm.userData.near = true; site.add(fm);
+  const tm = mesh(tr, new THREE.MeshStandardMaterial({ color: 0x5b4636, roughness: 0.95 })); tm.userData.near = true; site.add(tm);
 }
 // street lights and cars on the main road
 const streetGlow = [];
@@ -636,8 +652,8 @@ const streetGlow = [];
     const c = new THREE.CylinderGeometry(0.08, 0.1, 8, 8); c.rotateX(Math.PI / 2); c.translate(p.x, p.y, 4); poles.push(c);
     const hd = new THREE.BoxGeometry(1.4, 0.35, 0.15); hd.translate(p.x + dOut.x * 0.6, p.y + dOut.y * 0.6, 8); heads.push(hd);
   }
-  site.add(mesh(poles, M.mullion));
-  const hm = new THREE.Mesh(merge(heads), new THREE.MeshBasicMaterial({ color: 0x333333, toneMapped: false })); site.add(hm); streetGlow.push(hm);
+  const pm = mesh(poles, M.mullion); pm.userData.near = true; site.add(pm);
+  const hm = new THREE.Mesh(merge(heads), new THREE.MeshBasicMaterial({ color: 0x333333, toneMapped: false })); hm.userData.near = true; site.add(hm); streetGlow.push(hm);
 }
 const cars = (() => {
   const n = 34, g = new THREE.BoxGeometry(4.3, 1.8, 1.4); g.translate(0, 0, 0.75);
@@ -645,9 +661,9 @@ const cars = (() => {
   const cc = new THREE.Color(), pal = ['#e8e8e6', '#2a2d31', '#8b9196', '#b73b2f', '#1f3b5c', '#dcdad4'];
   const st = Array.from({ length: n }, (_, i) => ({ s: r() * 600, lane: [8.2, 11.6, 18.6, 22][i % 4], v: 9 + r() * 5 }));
   st.forEach((c, i) => im.setColorAt(i, cc.set(pal[i % pal.length])));
-  im.castShadow = true; site.add(im);
+  im.castShadow = true; im.userData.near = true; site.add(im);
   const lightG = new THREE.InstancedMesh(new THREE.BoxGeometry(0.2, 1.5, 0.3), new THREE.MeshBasicMaterial({ color: 0xffffff, toneMapped: false }), n * 2);
-  site.add(lightG);
+  lightG.userData.near = true; site.add(lightG);
   const [a0] = ext(0);
   return { im, st, lightG, step(dt) {
     const m4 = new THREE.Matrix4(), q = new THREE.Quaternion();
@@ -680,7 +696,7 @@ const cars = (() => {
       const g = new THREE.BoxGeometry(w, d, h); g.translate(bx + 5 + w / 2 + rr() * Math.max(0, 32 - w), by + 5 + d / 2 + rr() * Math.max(0, 32 - d), h / 2); boxes.push(g);
     }
   }
-  const city = mesh(boxes, new THREE.MeshStandardMaterial({ color: 0xd9d4cb, roughness: 0.95 })); site.add(city);
+  const city = mesh(boxes, new THREE.MeshStandardMaterial({ color: 0xd9d4cb, roughness: 0.95 })); site.add(city); reflectables.push(city);
   var cityMesh = city;
 }
 
@@ -702,6 +718,29 @@ const envScene = new THREE.Scene(); const envSky = new Sky(); envSky.scale.setSc
 const pmrem = new THREE.PMREMGenerator(renderer);
 const roomEnv = pmrem.fromScene(new RoomEnvironment(), 0.03).texture;
 let skyEnvRT = null;
+const probeRT = new THREE.WebGLCubeRenderTarget(512, { type: THREE.HalfFloatType, generateMipmaps: true, minFilter: THREE.LinearMipmapLinearFilter });
+const probe = new THREE.CubeCamera(0.5, 40000, probeRT);
+let probeEnv = null;
+const reflScene = new THREE.Scene();
+const reflRoot = new THREE.Group(); reflRoot.rotation.copy(root.rotation); reflRoot.position.copy(root.position); reflScene.add(reflRoot);
+for (const m of reflectables) { const c = new THREE.Mesh(m.geometry, m.material); c.position.copy(m.position); c.rotation.copy(m.rotation); c.scale.copy(m.scale); reflRoot.add(c); }
+const reflSky = new Sky(); reflSky.scale.setScalar(2000); reflSky.material.uniforms = U; reflScene.add(reflSky);
+let reflDome = null;                         // the night sky, made once the dome exists
+const reflHemi = new THREE.HemisphereLight(), reflSun = new THREE.DirectionalLight(); reflScene.add(reflHemi, reflSun);
+function captureReflections() {
+  // The glass reflects a scene of distant things only: sky, ground, roads and the city, seen from the
+  // middle of the building. Trees, people and cars a few metres from the glass would land in the wrong
+  // place, because a single reflection probe cannot know how far away they are.
+  probe.position.copy(W(CX, CY - 10, 9));
+  if (!reflDome) { reflDome = new THREE.Mesh(dome.geometry, dome.material); reflDome.scale.setScalar(900 / 15000); reflDome.renderOrder = 1; reflScene.add(reflDome); }
+  reflHemi.color.copy(hemi.color); reflHemi.groundColor.copy(hemi.groundColor); reflHemi.intensity = hemi.intensity;
+  reflSun.color.copy(sun.color); reflSun.intensity = sun.intensity; reflSun.position.copy(sun.position); reflSun.target.position.copy(sun.target.position);
+  reflScene.fog = scene.fog;
+  probe.update(renderer, reflScene);
+  if (probeEnv) probeEnv.dispose();
+  probeEnv = pmrem.fromCubemap(probeRT.texture);
+  M.glass.envMap = probeEnv.texture; M.glass.needsUpdate = true;
+}
 const sun = new THREE.DirectionalLight(0xfff3e2, 3);
 sun.castShadow = true; sun.shadow.mapSize.set(small ? 2048 : 4096, small ? 2048 : 4096);
 Object.assign(sun.shadow.camera, { left: -110, right: 110, top: 110, bottom: -110, near: 10, far: 700 });
@@ -793,6 +832,7 @@ function apply() {
   }
   for (const m of roofParts) m.visible = state.cut !== '4F';
   for (const c of lights) c.visible = c.userData.level !== state.cut;
+  if (!crystal) captureReflections();
   document.querySelectorAll('[data-mode]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.mode === state.mode)));
   document.querySelectorAll('[data-light]').forEach((b) => { b.setAttribute('aria-pressed', String(b.dataset.light === state.light)); b.disabled = crystal; b.style.opacity = crystal ? 0.45 : 1; });
   $('#explode').setAttribute('aria-pressed', String(state.explode));
@@ -884,6 +924,7 @@ function frame(now) {
   requestAnimationFrame(frame);
 }
 scene.traverse((o) => { const m = o.material; if (m && m.isMeshStandardMaterial && !m.isMeshPhysicalMaterial) m.envMapIntensity = m.roughness > 0.6 ? 0.35 : 0.6; });
+for (const m of [M.floor, M.ceiling, M.column, M.core, M.fixtures]) m.envMapIntensity = 0.18;   // indoors: lit by the room, not by the open sky
 apply();
 flyTo(VIEWS.aerial, true);
 resize();
