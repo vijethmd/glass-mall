@@ -39,4 +39,22 @@ Then open http://localhost:8766. `index.html` is a page fragment (no `<html>` or
 - **Light:** day, golden hour or night.
 - **Floors:** explode the floors apart, or click a level to cut the building down to it.
 
+## Roblox game
+
+`roblox/GlassMall.rbxlx` is the same mall as a walkable Roblox place, built from the same traced floor plans (3.5 studs per metre). To open it, double-click the file to open it in Roblox Studio, press **Play** to try it, then use **File › Publish to Roblox** to publish it. New experiences start private; to open it to everyone, go to **Game Settings › Permissions** and set it to public.
+
+**What's in it:**
+- **Getting around:** automatic sliding doors on the court and at the roof terrace. Escalators by the atrium carry you up, and a glass lift by the shops has floor buttons and call buttons on every landing.
+- **Each floor:** shops on every floor, a food court with seats on 2F, an arcade on 3F, and two cinemas with stepped seating and screens on 4F, plus a planted roof terrace.
+- **Life:** shoppers walk in from the street, visit a few places and leave. Cars drive the main road.
+- **Atmosphere:** a 16-minute day–night cycle with street lights at dusk, an animated LED wall, and a floor indicator on screen.
+
+To rebuild the place after changing `roblox/build_place.py` or `roblox/scripts/*.lua`:
+
+```bash
+python3 roblox/build_place.py
+```
+
+It needs `numpy`.
+
 *Concept visualisation for a student design project, not for construction.*
