@@ -1,5 +1,9 @@
 # Publishing Glass Mall
 
+**Published 28 Oct 2026:** [Glass Mall on Roblox](https://www.roblox.com/games/98868923375548/Glass-Mall) (place 98868923375548, universe 10773321732). It's public for ages 16+. Opening it to under-16s needs Roblox's maturity questionnaire, filled in on the Creator Hub.
+
+The steps below describe the first publish; to update the live game, use **File › Publish to Roblox**.
+
 `GlassMall.rbxlx` is already open in Roblox Studio and signed in to your account. Publishing takes about five minutes.
 
 ## 1. Try it (1 minute)

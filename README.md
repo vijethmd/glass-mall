@@ -41,6 +41,8 @@ Then open http://localhost:8766. `index.html` is a page fragment (no `<html>` or
 
 ## Roblox game
 
+**Play it:** [Glass Mall on Roblox](https://www.roblox.com/games/98868923375548/Glass-Mall)
+
 Step-by-step publishing instructions are in [`roblox/PUBLISH.md`](roblox/PUBLISH.md).
 
 `roblox/GlassMall.rbxlx` is the same mall as a walkable Roblox place, built from the same traced floor plans (3.5 studs per metre). To open it, double-click the file to open it in Roblox Studio, press **Play** to try it, then use **File › Publish to Roblox** to publish it. New experiences start private; to open it to everyone, go to **Game Settings › Permissions** and set it to public.
