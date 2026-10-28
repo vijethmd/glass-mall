@@ -272,10 +272,11 @@ gui.Name = "ElevatorPanel"
 gui.ResetOnSpawn = false
 gui.Parent = player:WaitForChild("PlayerGui")
 
+local PANEL_W = 300
 local panel = Instance.new("Frame")
 panel.AnchorPoint = Vector2.new(1, 0.5)
-panel.Size = UDim2.new(0, 250, 0, 120)
-panel.Position = UDim2.new(1, 300, 0.5, 0)
+panel.Size = UDim2.new(0, PANEL_W, 0, 120)
+panel.Position = UDim2.new(1, PANEL_W + 60, 0.5, 0)
 panel.BackgroundColor3 = Color3.fromRGB(14, 20, 24)
 panel.BackgroundTransparency = 0.08
 panel.Parent = gui
@@ -315,31 +316,54 @@ sub.TextXAlignment = Enum.TextXAlignment.Left
 sub.TextColor3 = Color3.fromRGB(225, 233, 236)
 sub.Parent = panel
 
-local list = Instance.new("Frame")
+-- floor buttons two to a row, top floor first, scrolling when a building has lots of floors
+local list = Instance.new("ScrollingFrame")
 list.Position = UDim2.new(0, 10, 0, 102)
 list.Size = UDim2.new(1, -20, 0, 0)
 list.BackgroundTransparency = 1
+list.BorderSizePixel = 0
+list.ScrollBarThickness = 5
+list.CanvasSize = UDim2.new()
 list.Parent = panel
-local layout = Instance.new("UIListLayout", list)
-layout.Padding = UDim.new(0, 6)
+local layout = Instance.new("UIGridLayout", list)
+layout.CellPadding = UDim2.fromOffset(6, 6)
+layout.CellSize = UDim2.new(0.5, -3, 0, 44)
 layout.SortOrder = Enum.SortOrder.LayoutOrder
+local controls = Instance.new("Frame")
+controls.Size = UDim2.new(1, -20, 0, 34)
+controls.BackgroundTransparency = 1
+controls.Parent = panel
 
 local riding, buttons, extras, shown = nil, {}, {}, false
 
-local function button(parent, text, order, onClick)
+local function button(parent, labelText, titleText, order, onClick)
 	local b = Instance.new("TextButton")
 	b.LayoutOrder = order
-	b.Size = UDim2.new(1, 0, 0, 38)
 	b.BackgroundColor3 = Color3.fromRGB(32, 42, 48)
 	b.AutoButtonColor = true
-	b.Font = Enum.Font.GothamMedium
-	b.TextSize = 15
-	b.TextXAlignment = Enum.TextXAlignment.Left
-	b.TextColor3 = Color3.new(1, 1, 1)
-	b.Text = text
+	b.Text = ""
 	b.Parent = parent
 	Instance.new("UICorner", b).CornerRadius = UDim.new(0, 10)
-	Instance.new("UIPadding", b).PaddingLeft = UDim.new(0, 12)
+	local num = Instance.new("TextLabel")
+	num.BackgroundTransparency = 1
+	num.Position = UDim2.fromOffset(8, 0)
+	num.Size = UDim2.new(0, 34, 1, 0)
+	num.Font = Enum.Font.GothamBlack
+	num.TextSize = 18
+	num.TextColor3 = Color3.fromRGB(255, 170, 60)
+	num.Text = labelText
+	num.Parent = b
+	local name = Instance.new("TextLabel")
+	name.BackgroundTransparency = 1
+	name.Position = UDim2.fromOffset(44, 0)
+	name.Size = UDim2.new(1, -50, 1, 0)
+	name.Font = Enum.Font.GothamMedium
+	name.TextSize = 12
+	name.TextWrapped = true
+	name.TextXAlignment = Enum.TextXAlignment.Left
+	name.TextColor3 = Color3.new(1, 1, 1)
+	name.Text = titleText
+	name.Parent = b
 	b.Activated:Connect(onClick)
 	return b
 end
@@ -356,17 +380,16 @@ local function build(e)
 	local n = #e.stops
 	for i = n, 1, -1 do
 		local s = e.stops[i]
-		local b = button(list, string.format("%s   %s", s.label, s.title), n - i, function()
+		local b = button(list, s.label, s.title, n - i, function()
 			e.pending[i] = true
 			remote:FireServer(e.model, "go", i)
 		end)
 		buttons[i] = b
 	end
 	local row = Instance.new("Frame")
-	row.LayoutOrder = n + 1
-	row.Size = UDim2.new(1, 0, 0, 34)
+	row.Size = UDim2.new(1, 0, 1, 0)
 	row.BackgroundTransparency = 1
-	row.Parent = list
+	row.Parent = controls
 	table.insert(extras, row)
 	for k, spec in ipairs({ { "◀ ▶  Open", "open" }, { "▶ ◀  Close", "close" } }) do
 		local b = Instance.new("TextButton")
@@ -383,9 +406,14 @@ local function build(e)
 			remote:FireServer(e.model, spec[2])
 		end)
 	end
-	local h = 102 + n * 44 + 34 + 14
-	list.Size = UDim2.new(1, -20, 0, n * 44 + 34)
-	panel.Size = UDim2.new(0, 250, 0, h)
+	local rows = math.ceil(n / 2)
+	local full = rows * 50
+	local view = workspace.CurrentCamera and workspace.CurrentCamera.ViewportSize.Y or 700
+	local shown_ = math.min(full, math.max(150, view - 260))
+	list.Size = UDim2.new(1, -20, 0, shown_)
+	list.CanvasSize = UDim2.new(0, 0, 0, full)
+	controls.Position = UDim2.new(0, 10, 0, 102 + shown_ + 6)
+	panel.Size = UDim2.new(0, PANEL_W, 0, 102 + shown_ + 6 + 34 + 12)
 end
 
 local function show(on)
@@ -394,7 +422,7 @@ local function show(on)
 	end
 	shown = on
 	TweenService:Create(panel, TweenInfo.new(0.35, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {
-		Position = on and UDim2.new(1, -18, 0.5, 0) or UDim2.new(1, 300, 0.5, 0),
+		Position = on and UDim2.new(1, -18, 0.5, 0) or UDim2.new(1, PANEL_W + 60, 0.5, 0),
 	}):Play()
 end
 

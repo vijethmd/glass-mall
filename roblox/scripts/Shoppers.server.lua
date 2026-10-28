@@ -70,6 +70,33 @@ local function makeShopper(at)
 			root:SetNetworkOwner(nil)
 		end)
 	end
+	-- walk when walking, stand when standing (the default R15 animations)
+	local animator = humanoid:FindFirstChildOfClass("Animator") or Instance.new("Animator", humanoid)
+	local function load(id)
+		local a = Instance.new("Animation")
+		a.AnimationId = id
+		local ok, track = pcall(function()
+			return animator:LoadAnimation(a)
+		end)
+		return ok and track or nil
+	end
+	local walk, idle = load("rbxassetid://507777826"), load("rbxassetid://507766388")
+	if walk and idle then
+		walk.Looped, idle.Looped = true, true
+		idle:Play()
+		humanoid.Running:Connect(function(speed)
+			if speed > 0.5 then
+				if not walk.IsPlaying then
+					idle:Stop(0.2)
+					walk:Play(0.2)
+				end
+				walk:AdjustSpeed(speed / 12)
+			elseif walk.IsPlaying then
+				walk:Stop(0.2)
+				idle:Play(0.2)
+			end
+		end)
+	end
 	return model, humanoid
 end
 

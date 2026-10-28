@@ -4,6 +4,11 @@ local terrain = workspace.Terrain
 local T = __TERRAIN__ -- boxes are { centre x, y, z, size x, y, z } in studs; balls { x, y, z, radius }
 
 terrain:SetMaterialColor(Enum.Material.Grass, Color3.fromRGB(96, 140, 66))
+local clouds = Instance.new("Clouds")
+clouds.Cover = 0.55
+clouds.Density = 0.65
+clouds.Color = Color3.fromRGB(245, 245, 248)
+clouds.Parent = terrain
 terrain:SetMaterialColor(Enum.Material.Sand, Color3.fromRGB(226, 206, 160))
 terrain.WaterColor = Color3.fromRGB(28, 116, 140)
 terrain.WaterTransparency = 0.55
