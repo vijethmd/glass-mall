@@ -2,7 +2,9 @@
 
 **Published 28 Oct 2026:** [Glass Mall on Roblox](https://www.roblox.com/games/98868923375548/Glass-Mall) (place 98868923375548, universe 10773321732). It's public for ages 16+. Opening it to under-16s needs Roblox's maturity questionnaire, filled in on the Creator Hub.
 
-The steps below describe the first publish. To update the live game from a rebuilt `GlassMall.rbxlx`, open the file in Studio, choose **File › Publish As**, pick the **Glass Mall** experience, select its **Glass Mall** place and click **Overwrite**.
+**Updated 28 Oct 2026 with Glass City** (place version 3): the open-world city, drivable cars, coins and travel menu.
+
+The steps below describe the first publish. To update the live game from a rebuilt `GlassMall.rbxlx`, see [Updating the live game](#updating-the-live-game).
 
 `GlassMall.rbxlx` is already open in Roblox Studio and signed in to your account. Publishing takes about five minutes.
 
@@ -43,4 +45,26 @@ If you'd rather I send it, tell me the link and I'll finish and send the draft.
 
 ## Rebuilding
 
-After you change `build_place.py` or `scripts/*.lua`, run `python3 build_place.py` (it needs numpy) and open the new `GlassMall.rbxlx` in Studio. Republish with **File › Publish As › Glass Mall › Overwrite** to update the live game.
+After you change `build_place.py` or `scripts/*.lua`, run `python3 build_place.py` (it needs numpy) and open the new `GlassMall.rbxlx` in Studio. Then follow [Updating the live game](#updating-the-live-game).
+
+## Updating the live game
+
+Don't use **File › Publish As › Overwrite** from the local file. In Studio 0.745 it freezes on "Upload in progress" and never sends anything; it did this three times on 28 Oct, even after a restart. Copy the new build into the live place and publish from there instead:
+
+1. Open the rebuilt `GlassMall.rbxlx`. Run this in the command bar (View › Command Bar) to gather everything into one folder:
+   ```lua
+   local t=Instance.new("Folder") t.Name="__Transfer" for _,s in ipairs({"Workspace","Lighting","ServerScriptService","ReplicatedStorage"}) do local f=Instance.new("Folder") f.Name=s f.Parent=t for _,c in ipairs(game:GetService(s):GetChildren()) do if not c:IsA("Terrain") and not c:IsA("Camera") then c.Parent=f end end end local f=Instance.new("Folder") f.Name="StarterPlayerScripts" f.Parent=t for _,c in ipairs(game.StarterPlayer.StarterPlayerScripts:GetChildren()) do c.Parent=f end t.Parent=game.ServerStorage print("gathered", #t:GetDescendants())
+   ```
+   Click **ServerStorage › __Transfer** in the Explorer and choose **Edit › Copy**.
+2. **File › Open from Roblox › Glass Mall.** In that window's command bar, clear out the old game. Studio warns that this uses Destroy; click **Continue**.
+   ```lua
+   for _,s in ipairs({"Workspace","Lighting","ServerScriptService","ReplicatedStorage"}) do for _,c in ipairs(game:GetService(s):GetChildren()) do if not c:IsA("Terrain") and not c:IsA("Camera") then c:Destroy() end end end for _,c in ipairs(game.StarterPlayer.StarterPlayerScripts:GetChildren()) do c:Destroy() end
+   ```
+3. Select **ServerStorage**, choose **Edit › Paste Into**, then run:
+   ```lua
+   local t=game.ServerStorage.__Transfer for _,f in ipairs(t:GetChildren()) do local dest=f.Name=="StarterPlayerScripts" and game.StarterPlayer.StarterPlayerScripts or game:GetService(f.Name) for _,c in ipairs(f:GetChildren()) do c.Parent=dest end end workspace.StreamingEnabled=true t.Parent=nil print("moved; parts", #workspace:GetDescendants())
+   ```
+4. **File › Publish** (Alt+P). Output should say *Published new changes in "Glass Mall" to Roblox*.
+5. Close the local `GlassMall.rbxlx` with **Don't Save**, so the file stays as the build script wrote it.
+
+If any command-bar script stops with an error, Studio undoes its moves but not its deletes. Run each script exactly as given; if one fails, paste again and rerun step 3.
