@@ -1587,8 +1587,7 @@ def tv(R, par, u, v, face, w=1.4, text="GLASS CITY TV", accent=(60, 200, 255)):
 def floor_lamp(R, par, u, v, color=(255, 236, 200)):
     q = R.p(u, v)
     vcyl(par, "Lamp pole", q[0], q[1], R.z, 1.5, 0.05, (60, 62, 66), "Metal")
-    shade = vcyl(par, "Lamp shade", q[0], q[1], R.z + 1.42, 0.36, 0.46, color, "Neon", collide=False, shadow=False)
-    light(shade, rng=11, brightness=0.55, color=(255, 220, 170))
+    vcyl(par, "Lamp shade", q[0], q[1], R.z + 1.42, 0.36, 0.46, color, "Neon", collide=False, shadow=False)
 
 
 def plant(R, par, u, v, h=1.1, pot=(196, 108, 72)):
