@@ -1,26 +1,43 @@
--- Automatic sliding doors, in the mall and the VAYU hotel: they open when a player or a
--- shopper comes close and close again when nobody is near. Each door is a Model named
--- AutoDoor with panels L and R and a NumberValue "Slide" (how far each panel moves, in studs).
+-- Automatic doors: they open when a player or a shopper comes close and close again when
+-- nobody is near. Sliding glass doors (the mall, the hotel, every shop and lobby) are Models
+-- named AutoDoor with panels L and R and a NumberValue "Slide" (how far each panel moves, in
+-- studs). House doors are Models named SwingDoor whose Leaf swings in on its hinge.
 local Players = game:GetService("Players")
 local TweenService = game:GetService("TweenService")
 
-local RANGE = 14
+local RANGE, SWING_RANGE = 14, 9
 local INFO = TweenInfo.new(0.6, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+local SWING = CFrame.Angles(0, math.rad(95), 0)
 
 local doors = {}
 for _, model in ipairs(workspace:GetDescendants()) do
+	if not model:IsA("Model") then
+		continue
+	end
 	local l, r, slide = model:FindFirstChild("L"), model:FindFirstChild("R"), model:FindFirstChild("Slide")
-	if model:IsA("Model") and model.Name == "AutoDoor" and l and r and slide then
+	local leaf = model:FindFirstChild("Leaf")
+	if model.Name == "AutoDoor" and l and r and slide then
 		table.insert(doors, {
-			l = l,
-			r = r,
-			lClosed = l.CFrame,
-			rClosed = r.CFrame,
-			lOpen = l.CFrame * CFrame.new(-slide.Value, 0, 0),
-			rOpen = r.CFrame * CFrame.new(slide.Value, 0, 0),
+			parts = { l, r },
+			closed = { l.CFrame, r.CFrame },
+			opened = { l.CFrame * CFrame.new(-slide.Value, 0, 0), r.CFrame * CFrame.new(slide.Value, 0, 0) },
 			centre = (l.Position + r.Position) / 2,
+			range = RANGE,
 			open = false,
 		})
+	elseif model.Name == "SwingDoor" and leaf then
+		-- the leaf's -X end is its hinge; +95 degrees turns its free end towards -Z, into the house
+		local hinge = leaf.CFrame * CFrame.new(-leaf.Size.X / 2, 0, 0)
+		local turn = hinge * SWING * hinge:Inverse()
+		local d = { parts = {}, closed = {}, opened = {}, centre = leaf.Position, range = SWING_RANGE, open = false }
+		for _, part in ipairs(model:GetChildren()) do
+			if part:IsA("BasePart") then
+				table.insert(d.parts, part)
+				table.insert(d.closed, part.CFrame)
+				table.insert(d.opened, turn * part.CFrame)
+			end
+		end
+		table.insert(doors, d)
 	end
 end
 
@@ -49,15 +66,16 @@ while true do
 	for _, door in ipairs(doors) do
 		local near = false
 		for _, p in ipairs(here) do
-			if (p - door.centre).Magnitude < RANGE then
+			if (p - door.centre).Magnitude < door.range then
 				near = true
 				break
 			end
 		end
 		if near ~= door.open then
 			door.open = near
-			TweenService:Create(door.l, INFO, { CFrame = near and door.lOpen or door.lClosed }):Play()
-			TweenService:Create(door.r, INFO, { CFrame = near and door.rOpen or door.rClosed }):Play()
+			for i, part in ipairs(door.parts) do
+				TweenService:Create(part, INFO, { CFrame = near and door.opened[i] or door.closed[i] }):Play()
+			end
 		end
 	end
 	task.wait(0.15)

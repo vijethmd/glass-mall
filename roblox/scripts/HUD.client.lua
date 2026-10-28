@@ -1,5 +1,5 @@
--- Welcome card when you join, and a label showing which mall floor or city district you
--- are in.
+-- Welcome card when you join, and a label showing which mall floor, building floor or city
+-- district you are in.
 local Players = game:GetService("Players")
 local TweenService = game:GetService("TweenService")
 
@@ -7,6 +7,7 @@ local player = Players.LocalPlayer
 local FLOORS = __FLOORS__ -- { y = floor top in studs, name, note }
 local FOOTPRINTS = __FOOTPRINTS__ -- each floor's outline, { x, z } in studs
 local TERRACE = __TERRACE__
+local BUILDINGS = __BUILDINGS__ -- every building with a lift: its outline in studs and its floors { y, title }
 local DISTRICTS = __DISTRICTS__ -- { name, x0, z0, x1, z1 } in studs, first match wins
 local BLVD = __BLVD__ -- the boulevard: a point on its edge, its direction and the road's span across
 
@@ -64,10 +65,10 @@ body.TextWrapped = true
 body.TextXAlignment = Enum.TextXAlignment.Left
 body.TextYAlignment = Enum.TextYAlignment.Top
 body.TextColor3 = Color3.fromRGB(225, 233, 236)
-body.Text = "The Glass Mall now sits in a whole city.\n"
-	.. "Get a car at a glowing pad, or press E by any parked car.\n"
-	.. "Travel (left) jumps to any district. Collect the gold coins.\n"
-	.. "Mall: 2F food court  ·  3F arcade  ·  4F cinemas"
+body.Text = "Every building in Glass City has an inside: walk in.\n"
+	.. "Call a lift with E and pick a floor on the panel - ride the\n"
+	.. "Glass Spire express to its sky lounge and glass skywalk.\n"
+	.. "Get a car at a glowing pad. Travel (left) jumps anywhere."
 body.Parent = card
 
 task.delay(16, function()
@@ -101,6 +102,22 @@ local function district(p)
 	return "Glass Hills"
 end
 
+local function building(p)
+	for _, b in ipairs(BUILDINGS) do
+		local r = b.rect
+		if p.X >= r[1] and p.X <= r[3] and p.Z >= r[2] and p.Z <= r[4] then
+			local title
+			for _, f in ipairs(b.floors) do
+				if p.Y >= f[1] - 1 then
+					title = f[2]
+				end
+			end
+			return title and (b.name .. "  ·  " .. title) or b.name
+		end
+	end
+	return nil
+end
+
 local function where()
 	local root = player.Character and player.Character:FindFirstChild("HumanoidRootPart")
 	if not root then
@@ -120,7 +137,7 @@ local function where()
 	if idx == #FLOORS and inside(p.X, p.Z, TERRACE) then
 		return "Roof terrace"
 	end
-	return district(p)
+	return building(p) or district(p)
 end
 
 while true do
