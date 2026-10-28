@@ -4,6 +4,8 @@
 
 **Updated 28 Oct 2026 with Glass City** (place version 3): the open-world city, drivable cars, coins and travel menu.
 
+**Updated 29 Oct 2026** (place version 4): every floor of every building open and furnished, themed mall shops, the explorer passport, the city map, arcade games, free food counters, cinema films, people, sound, weather and fireworks.
+
 The steps below describe the first publish. To update the live game from a rebuilt `GlassMall.rbxlx`, see [Updating the live game](#updating-the-live-game).
 
 `GlassMall.rbxlx` is already open in Roblox Studio and signed in to your account. Publishing takes about five minutes.
@@ -49,22 +51,20 @@ After you change `build_place.py` or `scripts/*.lua`, run `python3 build_place.p
 
 ## Updating the live game
 
-Don't use **File › Publish As › Overwrite** from the local file. In Studio 0.745 it freezes on "Upload in progress" and never sends anything; it did this three times on 28 Oct, even after a restart. Copy the new build into the live place and publish from there instead:
+Don't use **File › Publish As › Overwrite** from the local file. In Studio 0.745 it freezes on "Upload in progress" and never sends anything. Load the new build into the live place and publish from there instead. `build_place.py` writes `GlassCity_Transfer.rbxmx` for this: one Folder, `__Transfer`, with a folder per service.
 
-1. Open the rebuilt `GlassMall.rbxlx`. Run this in the command bar (View › Command Bar) to gather everything into one folder:
+1. **File › Open from Roblox › Glass Mall** (or use the window that already has it open).
+2. Run this in the command bar to select ServerStorage:
    ```lua
-   local t=Instance.new("Folder") t.Name="__Transfer" for _,s in ipairs({"Workspace","Lighting","ServerScriptService","ReplicatedStorage"}) do local f=Instance.new("Folder") f.Name=s f.Parent=t for _,c in ipairs(game:GetService(s):GetChildren()) do if not c:IsA("Terrain") and not c:IsA("Camera") then c.Parent=f end end end local f=Instance.new("Folder") f.Name="StarterPlayerScripts" f.Parent=t for _,c in ipairs(game.StarterPlayer.StarterPlayerScripts:GetChildren()) do c.Parent=f end t.Parent=game.ServerStorage print("gathered", #t:GetDescendants())
+   game:GetService("Selection"):Set({game.ServerStorage})
    ```
-   Click **ServerStorage › __Transfer** in the Explorer and choose **Edit › Copy**.
-2. **File › Open from Roblox › Glass Mall.** In that window's command bar, clear out the old game. Studio warns that this uses Destroy; click **Continue**.
+3. **File › Import Roblox Model**, pick `roblox/GlassCity_Transfer.rbxmx` (press ⇧⌘G and paste the path), then **Open**. `__Transfer` appears in ServerStorage after a few seconds.
+4. Run this in the command bar. It parks the old game in a folder instead of destroying it, so if anything fails, Studio undoes the whole step and nothing is lost:
    ```lua
-   for _,s in ipairs({"Workspace","Lighting","ServerScriptService","ReplicatedStorage"}) do for _,c in ipairs(game:GetService(s):GetChildren()) do if not c:IsA("Terrain") and not c:IsA("Camera") then c:Destroy() end end end for _,c in ipairs(game.StarterPlayer.StarterPlayerScripts:GetChildren()) do c:Destroy() end
+   local old=Instance.new("Folder") old.Name="__Old" old.Parent=game.ServerStorage for _,s in ipairs({"Workspace","Lighting","ServerScriptService","ReplicatedStorage","ReplicatedFirst"}) do local f=Instance.new("Folder") f.Name=s f.Parent=old for _,c in ipairs(game:GetService(s):GetChildren()) do if not c:IsA("Terrain") and not c:IsA("Camera") then c.Parent=f end end end local f=Instance.new("Folder") f.Name="SPS" f.Parent=old for _,c in ipairs(game.StarterPlayer.StarterPlayerScripts:GetChildren()) do c.Parent=f end local t=game.ServerStorage.__Transfer for _,g in ipairs(t:GetChildren()) do local dest=g.Name=="StarterPlayerScripts" and game.StarterPlayer.StarterPlayerScripts or game:GetService(g.Name) for _,c in ipairs(g:GetChildren()) do c.Parent=dest end end t.Parent=nil old.Parent=nil game.Lighting.Ambient=Color3.fromRGB(128,124,118) workspace.StreamingEnabled=true print("swapped; parts", #workspace:GetDescendants())
    ```
-3. Select **ServerStorage**, choose **Edit › Paste Into**, then run:
-   ```lua
-   local t=game.ServerStorage.__Transfer for _,f in ipairs(t:GetChildren()) do local dest=f.Name=="StarterPlayerScripts" and game.StarterPlayer.StarterPlayerScripts or game:GetService(f.Name) for _,c in ipairs(f:GetChildren()) do c.Parent=dest end end workspace.StreamingEnabled=true t.Parent=nil print("moved; parts", #workspace:GetDescendants())
-   ```
-4. **File › Publish** (Alt+P). Output should say *Published new changes in "Glass Mall" to Roblox*.
-5. Close the local `GlassMall.rbxlx` with **Don't Save**, so the file stays as the build script wrote it.
+5. Press **Play** to check it, then **Stop**, then **File › Publish** (⌥P). Output should say *Published new changes in "Glass Mall" to Roblox*.
 
-If any command-bar script stops with an error, Studio undoes its moves but not its deletes. Run each script exactly as given; if one fails, paste again and rerun step 3.
+What the command bar can't do in Studio 0.745: read local files (`InsertService:LoadLocalAsset` and `game:GetObjects` with a file path are refused), read or set `Lighting.Technology`, or set `Workspace.StreamingMinRadius` (the property is gone). A command-bar script that errors part-way is undone, except for anything it destroyed. That's why step 4 never calls Destroy.
+
+Saving coins and passports doesn't work in Studio unless **Game Settings › Security › Enable Studio Access to API Services** is on; the errors in Output about it are harmless. It works in the live game.

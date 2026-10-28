@@ -522,7 +522,8 @@ def elevator(parent, building, cx, cy, face, stops, cw=2.2, cd=2.0, door=1.2, st
 
 # ------------------------------------------------------------------ the place
 game_items = []
-ws = Inst("Workspace", "Workspace", StreamingEnabled=("bool", True), StreamingMinRadius=("int", 128))
+ws = Inst("Workspace", "Workspace", StreamingEnabled=("bool", True), StreamingMinRadius=("int", 160),
+          StreamingTargetRadius=("int", 900))
 game_items.append(ws)
 mall = new(ws, "Model", "Mall")
 structure = new(mall, "Folder", "Structure")
@@ -536,6 +537,48 @@ waypoints = new(ws, "Folder", "Waypoints")
 wp_street = new(waypoints, "Folder", "Street")
 wp_inside = new(waypoints, "Folder", "Inside")
 new(ws, "Folder", "Shoppers")
+staff_f = new(ws, "Folder", "Staff")
+
+
+# ---- what the scripts bring to life: tags on parts (see Vendors, Staff, Ambience, FX and Arcade)
+def vendor(part, item):
+    """A counter that hands you something when you press E (Vendors.server builds the item)."""
+    values(part, Vendor=item)
+    return part
+
+
+def amb(part, key):
+    """A looping sound here (Ambience.client knows what each key sounds like)."""
+    values(part, Ambience=key)
+    return part
+
+
+def fx(part, kind):
+    """A particle effect on this part (FX.client)."""
+    values(part, FX=kind)
+    return part
+
+
+def staff(R, u, v, face, role, anim="idle", z=0.0):
+    """Somebody who works here, standing at (u, v) and looking along face (Staff.server)."""
+    p = R.obj(staff_f, "Staff", u, v, z, 0.6, 0.6, 0.1, face, (255, 0, 0), tr=1, collide=False, query=False, shadow=False)
+    values(p, Role=role, Anim=anim)
+    return p
+
+
+def staff_xy(x, y, z, face, role, anim="idle"):
+    p = ybox(staff_f, "Staff", x, y, z, 0.6, 0.6, 0.1, math.atan2(-face[0], face[1]), (255, 0, 0), tr=1, collide=False,
+             query=False, shadow=False)
+    values(p, Role=role, Anim=anim)
+    return p
+
+
+def hidden(R, par, name, u, v, z):
+    """An invisible marker part, for sounds and effects."""
+    return R.box(par, name, u - 0.2, v - 0.2, u + 0.2, v + 0.2, z, z + 0.4, WHITE, tr=1, collide=False, query=False,
+                 shadow=False)
+
+
 
 # columns: the plan's structural grid, kept clear of the atrium, cores and lift
 COLS = []
@@ -784,23 +827,28 @@ def shop_row(parent, level, units, a, b, depth):
         wall(sh, "Neon strip", fa, fb, z + hg - 0.05, 0.05, 0.24, accent, "Neon", out=0.05, collide=False)
         if level == 0:
             wall(sh, "Bulkhead", fa, fb, z + hg + 0.55, top - z - hg - 0.25, 0.2, WHITE)
-        back = m - n * depth
-        wall(sh, "Shelf", back - u * (L / 2 - 0.5), back + u * (L / 2 - 0.5), z, 2.0, 0.45, (245, 244, 240), out=0.3)
-        wall(sh, "Shelf stock", back - u * (L / 2 - 0.7), back + u * (L / 2 - 0.7), z + 0.5, 1.2, 0.3, accent, out=0.32)
-        phi = math.atan2(u[1], u[0])
-        for s in (-1, 1):
-            q = m - n * (depth * 0.5) + u * s * 1.4
-            ybox(sh, "Display", q[0], q[1], z, 1.4, 0.8, 0.85, phi, tuple(int(c * 0.35 + 160) for c in accent))
-        light(sh.kids[-1], rng=16, brightness=0.8)
+        # inside: a real shop, its front on the mall and its back wall depth behind
+        corners = [fa, fb, fa - n * depth, fb - n * depth]
+        xs_, ys_ = [c_[0] for c_ in corners], [c_[1] for c_ in corners]
+        Rs = Room(min(xs_), min(ys_), max(xs_), max(ys_), tuple(np.round(n, 6)), z).sub(-L / 2 + 0.12, 0.1, L / 2 - 0.12,
+                                                                                        depth - 0.08)
+        Rs.clear = 0.95
+        MALL_SHOPS.append((name.title(), level, (min(xs_), min(ys_), max(xs_), max(ys_))))
+        MALL_THEMES.get(name, t_fashion)(Rs, sh, name, accent, (hg + 0.5) if level == 0 else top - z - 0.05)
         wp = m + n * 1.5
         aabb(wp_inside, "Shop", wp[0] - 0.2, wp[1] - 0.2, z + 0.4, wp[0] + 0.2, wp[1] + 0.2, z + 0.8, (255, 0, 0),
              tr=1, collide=False, query=False, shadow=False)
 
 
 shops_f = new(interiors, "Folder", "Shops")
-for level, units in SHOPS.items():
-    shop_row(shops_f, level, units, np.array([0.4, 63.6]), np.array([27.9, 63.6]), 70.02 - 63.6)
-shop_row(shops_f, 1, WEST_1F, np.array([4.8, 40.0]), np.array([4.8, 61.0]), 4.8 + 1.45)
+MALL_SHOPS = []                 # (name, level, rect)
+
+
+def build_mall_shops():
+    """Run once the room themes further down exist."""
+    for level, units in SHOPS.items():
+        shop_row(shops_f, level, units, np.array([0.4, 63.6]), np.array([27.9, 63.6]), 70.02 - 63.6)
+    shop_row(shops_f, 1, WEST_1F, np.array([4.8, 40.0]), np.array([4.8, 61.0]), 4.8 + 1.45)
 
 
 def inside_wp(x, y, level, name="Spot"):
@@ -847,8 +895,17 @@ for q, (name, accent) in zip([q for q in kiosk_spots if clear(q, 0, 2.2)][:4],
     sign(canopy, name)
     aabb(k_, "Canopy glow", q[0] - 1.4, q[1] - 0.9, 2.53, q[0] + 1.4, q[1] + 0.9, 2.56, accent, "Neon", collide=False)
     inside_wp(q[0], q[1] - 1.8, 0, "Kiosk")
+    item = {"SIP & GO": "Bubble tea", "SWEET SPOT": "Candy floss"}.get(name)
+    if item:
+        values(k_.kids[1], Vendor=item)
+    staff_xy(q[0] + 1.75, q[1], 0.03, (-1, 0), "Kiosk seller")
 desk = aabb(gf, "Information desk", 30.0, 43.3, 0.03, 33.6, 44.3, 1.1, (240, 238, 234), "Marble")
 sign(aabb(gf, "Information sign", 30.0, 43.2, 1.1, 33.6, 43.3, 1.6, (20, 24, 28)), "INFORMATION")
+staff_xy(31.8, 44.9, 0.03, (0, -1), "Information desk")
+door_c = P(1090, 733)
+staff_xy(door_c[0] + 2.6, door_c[1] + 1.6, 0.03, (0, -1), "Security guard")
+values(aabb(gf, "Atrium music", AC[0] - 0.2, AC[1] - 0.2, 4.0, AC[0] + 0.2, AC[1] + 0.2, 4.4, WHITE, tr=1, collide=False,
+            query=False, shadow=False), Ambience="mall")
 for x in (15.0, 25.0, 45.0, 55.0):
     inside_wp(x, 40.0, 0, "Atrium")
 inside_wp(AC[0] - 3.0, AC[1] - 2.5, 0, "Atrium")
@@ -887,6 +944,8 @@ for zone in ((13.5, 37.4, 23.8, 54.6), (27.7, 34.7, 44.8, 45.0)):
 for q in ((18.5, 45.0), (36.0, 40.0), (30.0, 37.0)):
     inside_wp(q[0], q[1], 2, "Food court")
 sign(aabb(f2, "Food court sign", 13.5, 55.6, z2 + 2.0, 23.8, 55.75, z2 + 2.55, (28, 30, 34)), "FOOD COURT")
+values(aabb(f2, "Food court hum", 25.0, 44.8, z2 + 2.2, 25.4, 45.2, z2 + 2.6, WHITE, tr=1, collide=False, query=False,
+            shadow=False), Ambience="foodcourt")
 
 # ---- 3F: arcade
 f3 = new(interiors, "Folder", "3F")
@@ -902,9 +961,13 @@ for y in np.arange(34.0, 55.0, 3.2):
         ybox(cab, "Cabinet", x, y, z3, 0.9, 0.8, 1.8, phi, (26, 26, 36))
         glow = rnd.choice([(255, 60, 160), (60, 220, 255), (255, 210, 60), (120, 255, 120), (170, 90, 255)])
         sp = q + np.array([0, face_n * 0.41])
-        ybox(cab, "Screen", sp[0], sp[1], z3 + 1.0, 0.7, 0.03, 0.5, phi, glow, "Neon", collide=False)
+        scr_ = ybox(cab, "Screen", sp[0], sp[1], z3 + 1.0, 0.7, 0.03, 0.5, phi, glow, "Neon", collide=False)
+        if rnd.random() < 0.4:
+            values(scr_, Arcade=rnd.choice(["catch", "dash", "memory"]))
         ybox(cab, "Marquee", sp[0], sp[1], z3 + 1.62, 0.8, 0.04, 0.14, phi, glow, "Neon", collide=False)
 sign(aabb(f3, "Arcade sign", 2.0, 56.6, z3 + 2.0, 21.0, 56.75, z3 + 2.55, (28, 30, 34)), "ARCADE")
+values(aabb(f3, "Arcade hum", 11.8, 44.8, z3 + 2.0, 12.2, 45.2, z3 + 2.4, WHITE, tr=1, collide=False, query=False,
+            shadow=False), Ambience="arcade")
 for q in ((11.0, 32.0), (22.5, 46.0), (12.0, 57.5)):
     inside_wp(q[0], q[1], 3, "Arcade")
 
@@ -941,6 +1004,7 @@ def cinema(name, rect, screen_side, door_side, door_at, title):
     phi = math.atan2(fwd[0], -fwd[1])        # +Z along fwd: seats look back at the screen, which shows on its Back face
     scr = ybox(hall, "Screen", s0[0], s0[1], z4 + 1.4, width * 0.8, 0.1, 3.4, phi, (235, 238, 242), "Neon")
     sign(scr, "NOW SHOWING\n" + title, face="Back", style="screen", accent=(230, 80, 60))
+    values(scr, Film=title)
     rows, depth, rise = 8, 1.2, 0.3
     for r in range(rows):
         centre = s0 + fwd * (7.0 + r * depth + depth / 2)
@@ -962,6 +1026,8 @@ def cinema(name, rect, screen_side, door_side, door_at, title):
 cinema("Cinema 1", HALL_A, "W", "S", np.array([HALL_A[0] + 4.0, HALL_A[1]]), "MONSOON SKIES")
 cinema("Cinema 2", HALL_B, "S", "W", np.array([HALL_B[0], HALL_B[1] + 3.5]), "THE LAST METRO HOME")
 counter = aabb(f4f, "Ticket counter", 36.0, 33.0, z4, 42.0, 34.0, z4 + 1.1, (30, 32, 36))
+values(counter, Vendor="Popcorn")
+staff_xy(39.0, 34.6, z4, (0, -1), "Cinema usher")
 sign(aabb(f4f, "Ticket sign", 36.0, 32.85, z4 + 2.4, 42.0, 33.0, z4 + 3.0, (30, 32, 36)), "TICKETS · POPCORN", face="Back")
 aabb(f4f, "Counter glow", 36.0, 32.9, z4 + 1.1, 42.0, 34.0, z4 + 1.15, (255, 170, 60), "Neon", collide=False)
 inside_wp(39.0, 30.0, 4, "Cinema lobby")
@@ -1498,7 +1564,7 @@ def glass_door(par, R, side, c, w, t, h=2.6):
     auto_door(par, a, b, R.z, h=h, out=0.0)
 
 
-def lamp_panel(R, par, u, v, zc, w=0.9, d=0.9, rng=16, brightness=0.75, color=(255, 240, 220), lit=True):
+def lamp_panel(R, par, u, v, zc, w=0.9, d=0.9, rng=18, brightness=1.0, color=(255, 240, 220), lit=True):
     p = R.box(par, "Ceiling light", u - w / 2, v - d / 2, u + w / 2, v + d / 2, zc - 0.04, zc, (255, 248, 236), "Neon",
               collide=False, shadow=False)
     if lit:
@@ -1611,7 +1677,7 @@ def shelf(R, par, u, v, face, w=1.6, h=2.0, color=(150, 104, 66), stock=BOOKS, r
 
 def counter(R, par, u0, v0, u1, v1, color=(240, 240, 236), top=(60, 62, 66), h=0.95, mat="Wood", top_mat="Marble"):
     R.box(par, "Counter", u0, v0, u1, v1, 0, h - 0.05, color, mat)
-    R.box(par, "Worktop", u0 - 0.03, v0 - 0.03, u1 + 0.03, v1 + 0.03, h - 0.05, h, top, top_mat)
+    return R.box(par, "Worktop", u0 - 0.03, v0 - 0.03, u1 + 0.03, v1 + 0.03, h - 0.05, h, top, top_mat)
 
 
 ART = [(230, 90, 70), (240, 190, 60), (70, 140, 210), (90, 180, 140), (200, 90, 160), (30, 34, 40), (240, 236, 228),
@@ -1628,14 +1694,17 @@ def painting(R, par, u, v, face, w=1.2, h=0.9, z=1.3):
           h * rnd.uniform(0.3, 0.5), face, c2, collide=False)
 
 
-def desk(R, par, u, v, face, w=1.4, color=(240, 240, 236), screen=(40, 110, 170)):
+def desk(R, par, u, v, face, w=1.4, color=(240, 240, 236), screen=(40, 110, 170), n=1):
     """face points from the chair to the screen."""
     back = (-face[0], -face[1])
     R.obj(par, "Desk", u, v, 0.7, w, 0.7, 0.04, face, color, "Wood")
     pu, pv = R.at(u, v, face, 0.3)
     R.obj(par, "Desk panel", pu, pv, 0, w - 0.1, 0.04, 0.7, face, (80, 82, 86), "Metal")
-    mu, mv = R.at(u, v, face, 0.18)
-    R.obj(par, "Monitor", mu, mv, 0.78, 0.6, 0.04, 0.36, back, screen, "Neon", shadow=False)
+    if n > 1:
+        monitor_row(R, par, u, v, face, n=n, w=min(0.5, (w - 0.2) / n - 0.04), z=0.78, color=screen)
+    else:
+        mu, mv = R.at(u, v, face, 0.18)
+        R.obj(par, "Monitor", mu, mv, 0.78, 0.6, 0.04, 0.36, back, screen, "Neon", shadow=False)
     cu, cv = R.at(u, v, face, -0.62)
     chair(R, par, cu, cv, face, (40, 44, 52))
     return back
@@ -1701,7 +1770,8 @@ CLEAR = 2.0
 
 def zones(R):
     """The two strips either side of the entrance-to-lift walk: (u0, u1) each, and the usable depth."""
-    return (-R.W / 2 + 0.35, -CLEAR), (CLEAR, R.W / 2 - 0.35), (0.6, R.D - 0.5)
+    c = getattr(R, "clear", CLEAR)
+    return (-R.W / 2 + 0.35, -c), (c, R.W / 2 - 0.35), (0.6, R.D - 0.5)
 
 
 def grid(u0, u1, v0, v1, du, dv, cap=None):
@@ -1725,7 +1795,7 @@ def ceiling_lights(R, par, h, n=2):
         lamp_panel(R, par, 0.0, R.D * (k + 0.5) / n, h, w=1.4, d=0.5, rng=22, brightness=0.8)
 
 
-def t_cafe(R, par, name, accent, h, menu="ESPRESSO · CHAI · FILTER KAAPI · CAKES"):
+def t_cafe(R, par, name, accent, h, menu="ESPRESSO · CHAI · FILTER KAAPI · CAKES", item="Coffee"):
     (l0, l1), (r0, r1), (v0, v1) = zones(R)
     counter(R, par, r1 - 0.7, v1 * 0.35, r1, v1 - 0.4, (150, 104, 66), (230, 226, 218))
     cu = r1 - 0.35
@@ -1734,6 +1804,10 @@ def t_cafe(R, par, name, accent, h, menu="ESPRESSO · CHAI · FILTER KAAPI · CA
     for k, c in enumerate(((240, 190, 120), (200, 110, 80), (250, 230, 200))):
         R.obj(par, "Cake", cu, v1 * 0.72 - 0.3 + k * 0.3, 1.0, 0.22, 0.22, 0.14, (-1, 0), c, collide=False)
     screen_sign(R, par, R.W / 2 - 0.12, v1 * 0.6, (-1, 0), 2.6, 0.9, 1.9, menu, accent)
+    vendor(R.obj(par, "Order point", r1 - 0.75, v1 * 0.42, 0.95, 0.12, 0.5, 0.08, (-1, 0), accent, "Neon", collide=False),
+           item)
+    staff(R, cu, v1 * 0.35 - 0.6, (-1, 0), "Barista")
+    amb(hidden(R, par, "Music", 0.0, R.D * 0.6, h - 0.6), "cafe")
     for k, (u, v) in enumerate(grid(l0, l1, v0 + 0.4, v1 - 0.3, 2.6, 2.8, cap=9)):
         table(R, par, u, v, 0.75, 0.75, (240, 236, 228), mat="Marble")
         chair(R, par, u - 0.62, v, (1, 0), accent)
@@ -1761,6 +1835,8 @@ def t_restaurant(R, par, name, accent, h):
             q = R.p(u, v)
             ball(par, "Candle", q[0], q[1], R.z + 0.82, 0.1, (255, 190, 90), "Neon", collide=False, shadow=False)
     counter(R, par, r1 - 0.8, v1 * 0.25, r1, v1 * 0.75, (60, 40, 30), (40, 40, 44))
+    staff(R, r0 + 0.6, v1 * 0.4, (0, -1), "Waiter")
+    amb(hidden(R, par, "Music", 0.0, R.D * 0.5, h - 0.6), "restaurant")
     shelf(R, par, R.W / 2 - 0.25, v1 * 0.5, (-1, 0), w=v1 * 0.4, h=2.2, color=(40, 30, 26),
           stock=[(140, 40, 50), (200, 170, 90), (90, 120, 60)], rows=4)
     for k in range(3):
@@ -1783,6 +1859,8 @@ def t_bank(R, par, name, accent, h):
     for e in (-1, 1):
         sofa(R, par, e * (R.W / 4 + 0.5), 2.2, (0, 1), w=2.0, color=(60, 70, 86))
     R.obj(par, "ATM", r1 - 0.3, 1.0, 0, 0.8, 0.6, 1.7, (-1, 0), (50, 54, 60), "Metal")
+    staff(R, (r0 + r1) / 2, vb + 1.0, (0, -1), "Bank teller")
+    staff(R, (l0 + l1) / 2, vb + 1.0, (0, -1), "Bank teller")
     R.obj(par, "ATM screen", r1 - 0.62, 1.0, 1.1, 0.4, 0.02, 0.3, (-1, 0), (60, 200, 140), "Neon")
     name_board(R, par, 0.0, R.D - 0.3, (0, -1), 3.4, h - 1.0, name, (20, 40, 80))
     plant(R, par, l0 + 0.4, v0, 1.4)
@@ -1808,6 +1886,8 @@ def t_gym(R, par, name, accent, h):
         R.obj(par, "Barbell", r0 + 1.2, v - 0.7, 1.35, 1.9, 0.06, 0.06, (0, 1), (200, 204, 208), "Metal")
     R.box(par, "Mirror", R.W / 2 - 0.08, v0, R.W / 2 - 0.04, v1, 0.3, 2.4, (210, 220, 226), "Glass", refl=0.6)
     R.box(par, "Dumbbell rack", r1 - 0.7, v1 * 0.3, r1 - 0.2, v1 * 0.7, 0, 0.8, (60, 62, 66), "Metal")
+    staff(R, (r0 + r1) / 2, v0 + 0.4, (0, 1), "Personal trainer", "cheer")
+    amb(hidden(R, par, "Music", 0.0, R.D / 2, h - 0.6), "gym")
     name_board(R, par, 0.0, R.D - 0.3, (0, -1), 3.2, h - 1.0, name, (30, 30, 34))
     neon_strip(R, par, -R.W / 2 + 0.3, R.D - 0.25, R.W / 2 - 0.3, R.D - 0.2, h - 0.25, accent)
     ceiling_lights(R, par, h, 3)
@@ -1822,6 +1902,7 @@ def t_gallery(R, par, name, accent, h):
         for u, v in grid(u0, u1, v0 + 1.0, v1 - 1.0, 3.4, 3.6, cap=5):
             sculpture(R, par, u, v, plinth(R, par, u, v))
     R.obj(par, "Bench", 0.0, R.D * 0.45, 0, 0.6, 2.0, 0.45, (1, 0), (40, 40, 44), "Wood")
+    staff(R, 0.0, R.D * 0.75, (0, -1), "Curator")
     for k in range(4):
         lamp_panel(R, par, 0.0, R.D * (k + 0.5) / 4, h, w=0.5, d=R.D / 5, rng=16, brightness=0.6, lit=k % 2 == 0)
 
@@ -1839,7 +1920,8 @@ def t_books(R, par, name, accent, h):
     rug(R, par, (l0 + l1) / 2 + 0.6, R.D * 0.7, 3.2, 2.6, (150, 60, 50))
     sofa(R, par, (l0 + l1) / 2 + 0.6, R.D * 0.7 + 0.6, (0, -1), w=1.8, color=(70, 90, 70))
     floor_lamp(R, par, (l0 + l1) / 2 - 0.8, R.D * 0.7 + 0.9)
-    counter(R, par, r0 + 0.5, R.D * 0.65, r1 - 0.8, R.D * 0.65 + 0.7, (150, 104, 66), (230, 226, 218))
+    vendor(counter(R, par, r0 + 0.5, R.D * 0.65, r1 - 0.8, R.D * 0.65 + 0.7, (150, 104, 66), (230, 226, 218)), "Book")
+    staff(R, (r0 + r1) / 2, R.D * 0.65 + 1.1, (0, -1), "Bookseller")
     ceiling_lights(R, par, h)
 
 
@@ -1870,7 +1952,8 @@ def t_florist(R, par, name, accent, h):
             for k in range(2):
                 ball(par, "Flowers", q[0] + rnd.uniform(-0.12, 0.12), q[1] + rnd.uniform(-0.12, 0.12),
                      R.z + 0.75 + rnd.uniform(0, 0.25), 0.32, c if k else (80, 130, 60), "Fabric", collide=False)
-    counter(R, par, r0 + 0.3, R.D * 0.7, r1 - 1.2, R.D * 0.7 + 0.7, (230, 226, 218), (150, 104, 66))
+    vendor(counter(R, par, r0 + 0.3, R.D * 0.7, r1 - 1.2, R.D * 0.7 + 0.7, (230, 226, 218), (150, 104, 66)), "Bouquet")
+    staff(R, (r0 + r1 - 0.9) / 2, R.D * 0.7 + 1.1, (0, -1), "Florist")
     for u, v in grid(l0 + 0.8, l1 - 0.4, v0 + 1.5, v1 - 1.5, 2.6, 3.0, cap=6):
         R.box(par, "Flower stand", u - 0.5, v - 0.5, u + 0.5, v + 0.5, 0, 0.7, (150, 104, 66), "Wood")
         for k in range(4):
@@ -1882,6 +1965,8 @@ def t_florist(R, par, name, accent, h):
 def t_clinic(R, par, name, accent, h):
     (l0, l1), (r0, r1), (v0, v1) = zones(R)
     counter(R, par, r0 + 0.3, v0 + 1.6, r1 - 0.3, v0 + 2.3, (236, 240, 242), (120, 190, 200))
+    staff(R, (r0 + r1) / 2, v0 + 2.7, (0, -1), "Receptionist")
+    staff(R, l0 + 1.2, R.D * 0.5 + 0.6, (0, -1), "Doctor")
     for u in along(l0 + 0.5, l1 - 0.2, 0.7, 10):
         chair(R, par, u, v0 + 0.6, (0, 1), (90, 150, 170))
     for k, v in enumerate(along(R.D * 0.5, v1 - 1.0, 2.8, 4)):
@@ -1910,6 +1995,8 @@ def t_music(R, par, name, accent, h):
         q = R.p(du + x, dv + y)
         vcyl(par, "Drum", q[0], q[1], R.z, hh, d_, (200, 40, 50) if k == 0 else (230, 230, 226), "SmoothPlastic")
     counter(R, par, r0 + 0.2, v0 + 0.6, r0 + 0.9, v0 + 2.6, (30, 30, 34), (150, 104, 66))
+    staff(R, (r0 + r1) / 2, R.D * 0.35 - 0.9, (0, 1), "Pianist", "sit", z=0.45)
+    amb(hidden(R, par, "Music", (r0 + r1) / 2, R.D * 0.35, 1.2), "piano")
     ceiling_lights(R, par, h)
 
 
@@ -1934,7 +2021,9 @@ def t_bowling(R, par, name, accent, h):
         table(R, par, u, v, 0.8, 0.8, (30, 30, 34))
         stool(R, par, u - 0.6, v, accent)
         stool(R, par, u + 0.6, v, accent)
-    counter(R, par, r1 - 0.8, R.D * 0.62, r1, v1 - 0.4, (30, 30, 34), (200, 60, 50))
+    vendor(R.box(par, "Counter", r1 - 0.8, R.D * 0.62, r1, v1 - 0.4, 0, 1.0, (30, 30, 34)), "Soda")
+    staff(R, r1 - 0.4, (R.D * 0.62 + v1 - 0.4) / 2, (-1, 0), "Bowling attendant")
+    amb(hidden(R, par, "Music", 0.0, R.D * 0.5, h - 0.6), "bowling")
     neon_strip(R, par, -R.W / 2 + 0.2, 0.3, -R.W / 2 + 0.24, R.D - 0.3, h - 0.3, accent)
     ceiling_lights(R, par, h, 3)
 
@@ -1954,6 +2043,7 @@ def t_market(R, par, name, accent, h):
     for u in (r0 + 0.5, r0 + 2.3):
         if u < r1 - 1.2:
             counter(R, par, u, v0 + 0.9, u + 0.6, v0 + 2.2, (60, 62, 66), (230, 228, 222))
+    vendor(R.box(par, "Snack stand", r0 + 0.5, v0 + 2.6, r0 + 1.1, v0 + 3.2, 0, 1.2, (240, 190, 60)), "Snack")
     screen_sign(R, par, 0.0, R.D - 0.3, (0, -1), 3.4, 0.8, h - 1.1, name + "  ·  OPEN 24/7", accent, style="led")
     ceiling_lights(R, par, h, 3)
 
@@ -1981,7 +2071,8 @@ def t_arcade(R, par, name, accent, h):
             c = rnd.choice(ART)
             R.obj(par, "Arcade cabinet", wall_u, v, 0, 0.8, 0.8, 1.8, face, (24, 24, 30))
             su, sv = R.at(wall_u, v, face, 0.3)
-            R.obj(par, "Arcade screen", su, sv, 1.0, 0.6, 0.22, 0.45, face, c, "Neon", shadow=False)
+            sc = R.obj(par, "Arcade screen", su, sv, 1.0, 0.6, 0.22, 0.45, face, c, "Neon", shadow=False)
+            values(sc, Arcade=rnd.choice(["catch", "dash", "memory"]))
             R.obj(par, "Marquee", su, sv, 1.6, 0.7, 0.2, 0.18, face, accent, "Neon", shadow=False)
     R.box(par, "Air hockey", (l0 + l1) / 2 + 0.2 - 0.7, R.D * 0.45 - 1.1, (l0 + l1) / 2 + 0.2 + 0.7, R.D * 0.45 + 1.1, 0,
           0.8, (230, 230, 236))
@@ -1996,6 +2087,8 @@ def t_arcade(R, par, name, accent, h):
     for u in along(-R.W / 2 + 1, R.W / 2 - 1, 3.5, 6):
         lamp_panel(R, par, u, R.D / 2, h, w=0.4, d=R.D * 0.8, rng=14, brightness=0.6, color=(200, 120, 255),
                    lit=abs(u) < 1.5)
+    staff(R, (r0 + r1) / 2 + 0.6, R.D * 0.45 + 0.9, (0, -1), "Arcade attendant", "cheer")
+    amb(hidden(R, par, "Ambience", 0.0, R.D / 2, h - 0.6), "arcade")
 
 
 def t_pets(R, par, name, accent, h):
@@ -2014,6 +2107,7 @@ def t_pets(R, par, name, accent, h):
     shelf(R, par, l1 - 0.3, R.D * 0.5, (-1, 0), w=2.0, h=1.6, color=(236, 236, 232),
           stock=[(200, 80, 60), (90, 160, 90), (240, 200, 70)], rows=3)
     counter(R, par, l0 + 1.4, v0 + 0.8, l1 - 0.6, v0 + 1.5, (90, 150, 110), (230, 226, 218))
+    staff(R, (l0 + l1) / 2 + 0.4, v0 + 1.9, (0, -1), "Pet keeper")
     ceiling_lights(R, par, h)
 
 
@@ -2027,21 +2121,22 @@ def t_salon(R, par, name, accent, h):
         seat(par, q[0], q[1], R.z + 0.1, R.phi(-1, 0), (30, 30, 34), back=True, w=0.6)
     sofa(R, par, (r0 + r1) / 2, v0 + 1.0, (0, 1), w=2.0, color=accent)
     counter(R, par, r1 - 0.7, R.D * 0.5, r1, v1 - 0.6, (236, 236, 232), (30, 30, 34))
+    staff(R, -R.W / 2 + 1.6, (v0 + 0.9 + v1 - 0.5) / 2, (-1, 0), "Stylist")
     plant(R, par, r1 - 0.4, v0 + 0.4, 1.3)
     ceiling_lights(R, par, h)
 
 
 def t_pizza(R, par, name, accent, h):
-    t_cafe(R, par, name, accent, h, menu="MARGHERITA · PANEER TIKKA · FUNGHI · GARLIC KNOTS")
+    t_cafe(R, par, name, accent, h, menu="MARGHERITA · PANEER TIKKA · FUNGHI · GARLIC KNOTS", item="Pizza slice")
     (l0, l1), (r0, r1), (v0, v1) = zones(R)
     q = R.p(R.W / 2 - 1.0, R.D - 1.2)
     ball(par, "Pizza oven", q[0], q[1], R.z + 0.9, 1.8, (170, 90, 60), "Brick")
-    R.box(par, "Oven fire", R.W / 2 - 1.6, R.D - 1.6, R.W / 2 - 1.4, R.D - 0.9, 0.9, 1.2, (255, 120, 30), "Neon",
-          collide=False, shadow=False)
+    fx(R.box(par, "Oven fire", R.W / 2 - 1.6, R.D - 1.6, R.W / 2 - 1.4, R.D - 0.9, 0.9, 1.2, (255, 120, 30), "Neon",
+             collide=False, shadow=False), "fire")
 
 
 def t_icecream(R, par, name, accent, h):
-    t_cafe(R, par, name, accent, h, menu="MANGO · PISTACHIO · CHOCOLATE · FILTER COFFEE · STRAWBERRY")
+    t_cafe(R, par, name, accent, h, menu="MANGO · PISTACHIO · CHOCOLATE · FILTER COFFEE · STRAWBERRY", item="Ice cream")
     (l0, l1), (r0, r1), (v0, v1) = zones(R)
     for k, c in enumerate(((250, 200, 90), (150, 210, 130), (120, 80, 60), (250, 170, 190), (240, 236, 220))):
         R.box(par, "Ice cream tub", r1 - 1.1, v1 * 0.4 + k * 0.4, r1 - 0.8, v1 * 0.4 + k * 0.4 + 0.3, 0.96, 1.0, c, "Neon",
@@ -2122,7 +2217,715 @@ def t_lobby(R, par, name, accent, h, mailboxes=False):
     plant(R, par, l0 + 0.4, v0, 1.6)
     plant(R, par, r1 - 0.4, v0, 1.6)
     painting(R, par, R.W / 2 - 0.1, R.D * 0.3, (-1, 0), 2.0, 1.2, 1.2)
+    staff(R, (r0 + r1) / 2, R.D * 0.55 + 1.2, (0, -1), "Concierge")
+    amb(R.box(par, "Ambience", -0.2, R.D * 0.5, 0.2, R.D * 0.5 + 0.4, h - 0.3, h - 0.1, WHITE, tr=1, collide=False,
+              query=False, shadow=False), "lobby")
     ceiling_lights(R, par, h, 2)
+
+
+def partition(R, par, u0, v0, u1, v1, h, color=(246, 244, 238), door=None, mat="SmoothPlastic", dh=2.1, name="Partition"):
+    """A wall from (u0, v0) to (u1, v1), thin across, with an optional doorway (centre, width) along it."""
+    along_u = abs(u1 - u0) >= abs(v1 - v0)
+    a0, a1 = (u0, u1) if along_u else (v0, v1)
+    pieces_ = [(a0, a1, 0.0, h)]
+    if door:
+        c, w = door
+        pieces_ = [(a0, c - w / 2, 0.0, h), (c + w / 2, a1, 0.0, h), (c - w / 2, c + w / 2, dh, h)]
+    for s0, s1, z0, z1 in pieces_:
+        if s1 - s0 < 0.02 or z1 - z0 < 0.02:
+            continue
+        if along_u:
+            R.box(par, name, s0, v0, s1, v1, z0, z1, color, mat)
+        else:
+            R.box(par, name, u0, s0, u1, s1, z0, z1, color, mat)
+
+
+def glass_wall(R, par, u0, v0, u1, v1, h):
+    R.box(par, "Glass partition", u0, v0, u1, v1, 0, h, (190, 220, 230), "Glass", tr=0.6, shadow=False)
+
+
+def toilet(R, par, u, v, face):
+    """face is where you look when you sit on it; its back is to the wall."""
+    R.obj(par, "Toilet", u, v, 0, 0.42, 0.6, 0.42, face, (248, 248, 246), "Marble")
+    bu, bv = R.at(u, v, face, -0.32)
+    R.obj(par, "Cistern", bu, bv, 0.42, 0.46, 0.18, 0.4, face, (248, 248, 246), "Marble")
+    su, sv = R.at(u, v, face, 0.02)
+    st = R.obj(par, "Seat", su, sv, 0.42, 0.4, 0.5, 0.04, face, (250, 250, 250), cls="Seat")
+    st.props["Disabled"] = ("bool", False)
+
+
+def basin(R, par, u, v, face, w=0.8):
+    """A vanity with its back to the wall, a mirror above it."""
+    R.obj(par, "Vanity", u, v, 0, w, 0.46, 0.82, face, (236, 232, 224), "Wood")
+    R.obj(par, "Basin", u, v, 0.82, w * 0.6, 0.36, 0.06, face, (250, 250, 250), "Marble")
+    bu, bv = R.at(u, v, face, -0.21)
+    R.obj(par, "Tap", bu, bv, 0.88, 0.05, 0.12, 0.18, face, (200, 204, 208), "Metal", collide=False)
+    mu, mv = R.at(u, v, face, -0.22)
+    R.obj(par, "Mirror", mu, mv, 1.1, w * 0.9, 0.02, 0.8, face, (210, 225, 232), "Glass", refl=0.7, collide=False)
+
+
+def shower(R, par, u0, v0, u1, v1, open_side="front"):
+    R.box(par, "Shower tray", u0, v0, u1, v1, 0, 0.06, (240, 240, 238), "Marble")
+    cu, cv = (u0 + u1) / 2, (v0 + v1) / 2
+    q = R.p(cu, cv)
+    vcyl(par, "Shower head", q[0], q[1], R.z + 2.0, 0.04, 0.25, (200, 204, 208), "Metal", collide=False)
+    if open_side in ("front", "back"):
+        vv = v0 if open_side == "front" else v1
+        R.box(par, "Shower glass", u0, vv - 0.02, (u0 + u1) / 2, vv + 0.02, 0.06, 2.0, (200, 230, 240), "Glass", tr=0.6,
+              shadow=False)
+    else:
+        uu = u0 if open_side == "left" else u1
+        R.box(par, "Shower glass", uu - 0.02, v0, uu + 0.02, (v0 + v1) / 2, 0.06, 2.0, (200, 230, 240), "Glass", tr=0.6,
+              shadow=False)
+
+
+def armchair(R, par, u, v, face, color):
+    R.obj(par, "Armchair", u, v, 0, 0.85, 0.85, 0.42, face, color, "Fabric")
+    bu, bv = R.at(u, v, face, -0.33)
+    R.obj(par, "Armchair back", bu, bv, 0.42, 0.85, 0.2, 0.5, face, color, "Fabric")
+    su, sv = R.at(u, v, face, 0.08)
+    st = R.obj(par, "Seat", su, sv, 0.42, 0.6, 0.55, 0.06, face, tuple(min(255, c + 20) for c in color), "Fabric", cls="Seat")
+    st.props["Disabled"] = ("bool", False)
+
+
+def monitor_row(R, par, u, v, face, n=3, w=0.5, z=0.78, color=(40, 120, 200)):
+    """n screens side by side on a desk, facing back towards whoever sits there."""
+    back = (-face[0], -face[1])
+    for k in range(n):
+        su, sv = R.at(u, v, face, 0.18, (k - (n - 1) / 2) * (w + 0.04))
+        R.obj(par, "Monitor", su, sv, z, w, 0.04, 0.32, back, rnd.choice([color, (60, 200, 140), (220, 80, 80)]), "Neon",
+              shadow=False)
+
+
+def mannequin(R, par, u, v, color):
+    q = R.p(u, v)
+    vcyl(par, "Mannequin stand", q[0], q[1], R.z, 0.04, 0.4, (40, 40, 44), "Metal")
+    vcyl(par, "Mannequin pole", q[0], q[1], R.z + 0.04, 0.9, 0.05, (200, 204, 208), "Metal")
+    R.obj(par, "Mannequin", u, v, 0.94, 0.42, 0.24, 0.62, (0, -1), color, "Fabric")
+    ball(par, "Mannequin head", q[0], q[1], R.z + 1.72, 0.24, (236, 232, 226), "SmoothPlastic")
+
+
+def clothes_rail(R, par, u, v, face, w=1.6):
+    R.obj(par, "Rail", u, v, 1.45, w, 0.05, 0.05, face, (200, 204, 208), "Metal")
+    for e in (-1, 1):
+        pu, pv = R.at(u, v, face, 0.0, e * w / 2)
+        R.obj(par, "Rail post", pu, pv, 0, 0.05, 0.05, 1.5, face, (200, 204, 208), "Metal")
+    for k in range(int(w / 0.22)):
+        cu, cv = R.at(u, v, face, 0.0, -w / 2 + 0.15 + k * 0.22)
+        R.obj(par, "Clothes", cu, cv, 0.6, 0.12, 0.45, 0.8, face, rnd.choice(ART), "Fabric", collide=False)
+
+
+# ---- the floors above the shops: a different firm on every floor
+def t_law(R, par, name, accent, h):
+    (l0, l1), (r0, r1), (v0, v1) = zones(R)
+    for v in along(v0 + 0.8, v1 - 0.6, 2.0, 8):
+        shelf(R, par, -R.W / 2 + 0.25, v, (1, 0), w=1.9, h=min(2.4, h - 0.4), color=(90, 60, 40), rows=4,
+              stock=[(120, 30, 30), (30, 50, 90), (40, 70, 50), (150, 120, 70)])
+    for u, v in grid(l0 + 1.0, l1, v0 + 1.0, v1 - 1.0, 3.0, 3.2, cap=4):
+        desk(R, par, u, v, (0, 1), 1.6, color=(90, 60, 40), screen=(40, 60, 90))
+        lu, lv = R.at(u, v, (0, 1), 0.1, 0.6)
+        q = R.p(lu, lv)
+        vcyl(par, "Desk lamp", q[0], q[1], R.z + 0.74, 0.35, 0.05, (200, 170, 90), "Metal", collide=False)
+        ball(par, "Lamp shade", q[0], q[1], R.z + 1.1, 0.2, (40, 120, 70), "Glass", collide=False)
+    mu = (r0 + r1) / 2
+    rug(R, par, mu, R.D * 0.5, max(1.5, r1 - r0 - 0.6), R.D * 0.5, (110, 30, 40))
+    dining(R, par, mu, R.D * 0.5, 1.0, max(2.0, R.D * 0.35), 2, color=(70, 44, 30), chairs=(30, 26, 24))
+    for v in along(R.D * 0.5 - R.D * 0.15, R.D * 0.5 + R.D * 0.15, 0.9, 6):
+        chair(R, par, mu - 0.95, v, (1, 0), (30, 26, 24))
+        chair(R, par, mu + 0.95, v, (-1, 0), (30, 26, 24))
+    name_board(R, par, 0.0, R.D - 0.3, (0, -1), 3.4, h - 1.0, name, (40, 26, 20))
+    painting(R, par, R.W / 2 - 0.1, R.D * 0.25, (-1, 0), 1.4, 1.0, 1.3)
+    plant(R, par, r1 - 0.4, v0 + 0.3, 1.5)
+    staff(R, -CLEAR - 0.6, v0 + 0.5, (1, 0), "Lawyer")
+    ceiling_lights(R, par, h, 3)
+
+
+def t_startup(R, par, name, accent, h):
+    (l0, l1), (r0, r1), (v0, v1) = zones(R)
+    for u, v in grid(l0, l1, v0 + 0.8, v1 - 0.6, 2.2, 2.4, cap=10):
+        R.obj(par, "Standing desk", u, v, 1.05, 1.3, 0.7, 0.05, (0, 1), (236, 236, 232), "Wood")
+        R.obj(par, "Desk leg", u, v, 0, 0.1, 0.5, 1.05, (0, 1), (40, 40, 44), "Metal")
+        mu, mv = R.at(u, v, (0, 1), 0.15)
+        R.obj(par, "Laptop", mu, mv, 1.1, 0.4, 0.03, 0.26, (0, -1), accent, "Neon", shadow=False)
+    pu, pv = (r0 + r1) / 2, R.D * 0.32
+    R.box(par, "Ping-pong table", pu - 0.75, pv - 1.35, pu + 0.75, pv + 1.35, 0.72, 0.76, (30, 110, 70), "SmoothPlastic")
+    R.box(par, "Ping-pong net", pu - 0.8, pv - 0.02, pu + 0.8, pv + 0.02, 0.76, 0.92, WHITE, "Fabric", collide=False)
+    for e in (-1, 1):
+        R.box(par, "Table leg", pu - 0.6, pv + e * 1.0 - 0.05, pu + 0.6, pv + e * 1.0 + 0.05, 0, 0.72, (40, 40, 44), "Metal")
+    q = R.p(pu + 0.3, pv + 0.5)
+    ball(par, "Ping-pong ball", q[0], q[1], R.z + 0.8, 0.05, (255, 150, 40))
+    for u, v in grid(r0 + 0.3, r1 - 0.3, R.D * 0.58, v1 - 0.4, 1.6, 1.6, cap=5):
+        q = R.p(u, v)
+        ball(par, "Bean bag", q[0], q[1], R.z + 0.28, 0.95, rnd.choice(ART), "Fabric")
+    counter(R, par, r1 - 0.7, v0 + 0.4, r1, R.D * 0.22, (250, 250, 248), (40, 40, 44))
+    vendor(R.obj(par, "Coffee machine", r1 - 0.35, v0 + 0.9, 0.95, 0.45, 0.4, 0.5, (-1, 0), (40, 40, 44), "Metal"),
+           "Coffee")
+    screen_sign(R, par, 0.0, R.D - 0.3, (0, -1), min(5.0, R.W - 4), 1.0, h - 1.5, name + "  ·  WE'RE HIRING", accent,
+                style="led")
+    neon_strip(R, par, -R.W / 2 + 0.3, 0.3, -R.W / 2 + 0.34, R.D - 0.3, h - 0.3, accent)
+    plant(R, par, l0 + 0.3, v1, 1.7)
+    staff(R, pu - 1.2, pv + 0.9, (1, 0), "Developer", "idle")
+    amb(hidden(R, par, "Ambience", 0, R.D / 2, h - 0.5), "office")
+    ceiling_lights(R, par, h, 3)
+
+
+def t_gamestudio(R, par, name, accent, h):
+    (l0, l1), (r0, r1), (v0, v1) = zones(R)
+    for u, v in grid(l0, l1, v0 + 0.8, v1 - 0.6, 2.4, 2.5, cap=8):
+        desk(R, par, u, v, (0, 1), 1.5, color=(40, 40, 44), screen=accent, n=2)
+    screen_sign(R, par, R.W / 2 - 0.1, R.D * 0.3 + 1.3, (-1, 0), 2.6, 1.5, 0.7, "NOW PLAYTESTING\n" + name, accent)
+    sofa(R, par, (r0 + r1) / 2 - 0.2, R.D * 0.3 + 1.3, (1, 0), w=2.0, color=(60, 60, 70))
+    for k, v in enumerate(along(R.D * 0.62, v1 - 0.3, 1.1, 3)):
+        R.obj(par, "Arcade cabinet", r1 - 0.4, v, 0, 0.8, 0.8, 1.8, (-1, 0), (24, 24, 30))
+        su, sv = R.at(r1 - 0.4, v, (-1, 0), 0.3)
+        sc = R.obj(par, "Arcade screen", su, sv, 1.0, 0.6, 0.22, 0.45, (-1, 0), rnd.choice(ART), "Neon", shadow=False)
+        values(sc, Arcade=("catch", "dash", "memory")[k % 3])
+    name_board(R, par, 0.0, R.D - 0.3, (0, -1), 3.4, h - 1.0, name, (20, 20, 30))
+    for u in along(-R.W / 2 + 1, R.W / 2 - 1, 3.2, 6):
+        lamp_panel(R, par, u, R.D / 2, h, w=0.35, d=R.D * 0.8, rng=14, brightness=0.6, color=(200, 120, 255),
+                   lit=abs(u) < 1.6)
+    staff(R, l1 - 0.2, v0 + 0.3, (0, 1), "Game designer")
+
+
+def t_design(R, par, name, accent, h):
+    (l0, l1), (r0, r1), (v0, v1) = zones(R)
+    for u, v in grid(l0, l1, v0 + 1.0, v1 - 0.6, 2.4, 2.6, cap=8):
+        q = R.p(u, v)
+        R.obj(par, "Drafting stand", u, v, 0, 0.12, 0.6, 0.9, (0, 1), (60, 62, 66), "Metal")
+        g, c_, s_ = -R.f, math.cos(0.5), math.sin(0.5)          # g: away from the stool
+        Z = np.array([g[0] * c_, g[1] * c_, s_])
+        Y = np.array([-g[0] * s_, -g[1] * s_, c_])
+        mbox(par, "Drafting board", (q[0], q[1], R.z + 0.95), (tuple(np.cross(Y, Z)), tuple(Y), tuple(Z)),
+             (1.3, 0.04, 0.9), (246, 246, 242), "Wood")
+        stool(R, par, u, v - 0.75, accent)
+    for v in along(v0 + 0.8, v1 - 0.8, 1.2, 8):
+        R.box(par, "Mood board", -R.W / 2 + 0.06, v - 0.5, -R.W / 2 + 0.1, v + 0.5, 1.0, 2.0, (230, 220, 200), "Fabric")
+        for k in range(3):
+            R.box(par, "Swatch", -R.W / 2 + 0.1, v - 0.4 + k * 0.28, -R.W / 2 + 0.12, v - 0.2 + k * 0.28, 1.2 + 0.2 * k,
+                  1.5 + 0.2 * k, rnd.choice(ART), collide=False)
+    mu, mv = (r0 + r1) / 2, R.D * 0.45
+    table(R, par, mu, mv, max(1.4, r1 - r0 - 1.0), 2.2, (246, 246, 242))
+    for k in range(5):
+        x, y = mu + rnd.uniform(-0.5, 0.5), mv + rnd.uniform(-0.7, 0.7)
+        R.obj(par, "Model block", x, y, 0.75, rnd.uniform(0.12, 0.3), rnd.uniform(0.12, 0.3), rnd.uniform(0.15, 0.6), (0, 1),
+              (250, 250, 248), "SmoothPlastic", collide=False)
+    for e in (-1, 1):
+        chair(R, par, mu + e * 0.6, mv - 1.5, (0, 1), (240, 240, 236))
+    plant(R, par, r1 - 0.4, v1 - 0.3, 1.8)
+    plant(R, par, l0 + 0.3, v0 + 0.3, 1.3)
+    name_board(R, par, 0.0, R.D - 0.3, (0, -1), 3.0, h - 1.0, name, (250, 250, 248))
+    staff(R, mu, mv - 1.1, (0, 1), "Designer")
+    ceiling_lights(R, par, h, 3)
+
+
+def t_yoga(R, par, name, accent, h):
+    (l0, l1), (r0, r1), (v0, v1) = zones(R)
+    R.box(par, "Sprung floor", -R.W / 2 + 0.1, 0.1, R.W / 2 - 0.1, R.D - 0.1, 0, 0.03, (200, 160, 110), "WoodPlanks")
+    for u0, u1 in ((l0, l1), (r0, r1)):
+        for u, v in grid(u0, u1, v0 + 0.8, v1 - 1.2, 1.3, 2.4, cap=8):
+            R.box(par, "Yoga mat", u - 0.32, v - 0.9, u + 0.32, v + 0.9, 0.03, 0.045, rnd.choice(ART), "Fabric",
+                  collide=False)
+    R.box(par, "Mirror wall", -R.W / 2 + 0.6, R.D - 0.12, R.W / 2 - 0.6, R.D - 0.08, 0.2, h - 0.3, (210, 225, 232), "Glass",
+          refl=0.7)
+    R.box(par, "Barre", -R.W / 2 + 0.6, R.D - 0.35, R.W / 2 - 0.6, R.D - 0.3, 1.0, 1.05, (200, 170, 120), "Wood")
+    for e in (-1, 1):
+        R.obj(par, "Speaker", e * (R.W / 2 - 0.4), R.D - 0.5, 0, 0.5, 0.4, 1.0, (0, -1), (20, 20, 22))
+    staff(R, 0.0, R.D - 1.0, (0, -1), "Yoga teacher", "idle")
+    for v in along(v0 + 1.0, v1 - 1.0, 2.5, 4):
+        plant(R, par, R.W / 2 - 0.4, v, 1.6)
+    amb(hidden(R, par, "Music", 0, R.D - 0.6, 1.0), "zen")
+    ceiling_lights(R, par, h, 2)
+
+
+def t_recording(R, par, name, accent, h):
+    (l0, l1), (r0, r1), (v0, v1) = zones(R)
+    vb = R.D * 0.55
+    glass_wall(R, par, -R.W / 2 + 0.2, vb - 0.04, -CLEAR - 0.2, vb + 0.04, h)
+    glass_wall(R, par, CLEAR + 0.2, vb - 0.04, R.W / 2 - 0.2, vb + 0.04, h)
+    cu = (l0 + l1) / 2
+    R.box(par, "Mixing desk", cu - 1.3, vb - 1.4, cu + 1.3, vb - 0.6, 0, 0.85, (30, 30, 34), "Metal")
+    for k in range(18):
+        x = cu - 1.2 + (k % 9) * 0.27
+        y = vb - 1.3 + (k // 9) * 0.3
+        R.box(par, "Fader", x, y, x + 0.06, y + 0.2, 0.85, 0.9, rnd.choice([accent, (240, 240, 236), (255, 80, 60)]), "Neon",
+              collide=False, shadow=False)
+    for e in (-1, 1):
+        R.obj(par, "Studio monitor", cu + e * 1.1, vb - 0.8, 0.85, 0.3, 0.3, 0.45, (0, -1), (20, 20, 22))
+    chair(R, par, cu, vb - 2.0, (0, 1), (30, 30, 34))
+    mu = (r0 + r1) / 2
+    q = R.p(mu, R.D * 0.78)
+    vcyl(par, "Mic stand", q[0], q[1], R.z, 1.5, 0.04, (60, 62, 66), "Metal")
+    ball(par, "Microphone", q[0], q[1], R.z + 1.6, 0.16, (200, 204, 208), "Metal")
+    R.box(par, "Acoustic panels", R.W / 2 - 0.1, vb + 0.3, R.W / 2 - 0.04, R.D - 0.3, 0.4, h - 0.3, (60, 50, 70), "Fabric")
+    sofa(R, par, (r0 + r1) / 2, v0 + 1.0, (0, 1), w=2.0, color=(120, 40, 50))
+    rug(R, par, mu, R.D * 0.78, 2.0, 2.0, (60, 50, 70))
+    name_board(R, par, 0.0, R.D - 0.3, (0, -1), 3.0, h - 1.0, name, (20, 18, 24))
+    q = R.p(mu, R.D * 0.78 + 0.6)
+    on_air = R.obj(par, "On air", 0.0, vb + 0.1, h - 0.6, 1.0, 0.06, 0.3, (0, -1), (220, 30, 30), "Neon")
+    sign(on_air, "ON AIR", face="Front", style="button")
+    staff(R, cu - 0.5, vb - 1.9, (0, 1), "Producer", "idle")
+    amb(hidden(R, par, "Music", mu, R.D * 0.78, 1.5), "funk")
+    ceiling_lights(R, par, h, 2)
+
+
+def t_servers(R, par, name, accent, h):
+    (l0, l1), (r0, r1), (v0, v1) = zones(R)
+    for u0, u1 in ((l0, l1), (r0, r1)):
+        for v in along(v0 + 0.8, v1 - 0.6, 1.6, 6):
+            R.box(par, "Server rack", u0 + 0.1, v - 0.35, u1 - 0.1, v + 0.35, 0, min(2.2, h - 0.4), (24, 26, 30), "Metal")
+            for k in range(6):
+                x = rnd.uniform(u0 + 0.2, u1 - 0.3)
+                R.box(par, "Status light", x, v - 0.37, x + 0.05, v - 0.35, 0.3 + k * 0.3, 0.33 + k * 0.3,
+                      rnd.choice([(60, 255, 120), (60, 200, 255), (255, 200, 40)]), "Neon", collide=False, shadow=False)
+    R.box(par, "Raised floor", -R.W / 2 + 0.1, 0.1, R.W / 2 - 0.1, R.D - 0.1, 0, 0.02, (200, 204, 210), "DiamondPlate",
+          collide=False)
+    screen_sign(R, par, 0.0, R.D - 0.3, (0, -1), min(5.0, R.W - 4), 1.2, h - 1.6, name + "\nALL SYSTEMS GO", (60, 255, 120))
+    for u in along(-R.W / 2 + 1, R.W / 2 - 1, 3.0, 5):
+        lamp_panel(R, par, u, R.D / 2, h, w=0.3, d=R.D * 0.8, rng=14, brightness=0.5, color=(120, 200, 255),
+                   lit=abs(u) < 1.5)
+    amb(hidden(R, par, "Ambience", 0, R.D / 2, 1.0), "servers")
+
+
+def t_school(R, par, name, accent, h):
+    (l0, l1), (r0, r1), (v0, v1) = zones(R)
+    for u0, u1 in ((l0, l1), (r0, r1)):
+        for u, v in grid(u0, u1, v0 + 0.6, R.D * 0.7, 1.3, 1.5, cap=8):
+            table(R, par, u, v, 0.9, 0.55, (230, 200, 150), h=0.7)
+            chair(R, par, u, v - 0.5, (0, 1), rnd.choice([(230, 80, 60), (60, 140, 220), (240, 190, 60), (90, 170, 100)]))
+    R.box(par, "Whiteboard", -R.W / 2 + 0.8, R.D - 0.12, R.W / 2 - 0.8, R.D - 0.08, 0.9, 2.2, (250, 250, 250))
+    wb = R.box(par, "Lesson", -1.6, R.D - 0.14, 1.6, R.D - 0.12, 1.0, 2.1, (250, 250, 250), collide=False)
+    sign(wb, name + "\nToday: build a city out of glass!", face=face_name(R.f), style="directory")
+    table(R, par, R.W / 4, R.D * 0.82, 1.4, 0.7, (150, 104, 66))
+    staff(R, -R.W / 4, R.D * 0.85, (0, -1), "Teacher", "idle")
+    for v in along(v0 + 0.8, v1 - 0.8, 1.6, 6):
+        R.box(par, "Poster", R.W / 2 - 0.08, v - 0.4, R.W / 2 - 0.05, v + 0.4, 1.2, 1.9, rnd.choice(ART), collide=False)
+    R.box(par, "Cubbies", -R.W / 2 + 0.1, v0 + 0.3, -R.W / 2 + 0.5, v0 + 2.8, 0, 1.1, (240, 190, 60), "Wood")
+    ceiling_lights(R, par, h, 3)
+
+
+def t_photo(R, par, name, accent, h):
+    (l0, l1), (r0, r1), (v0, v1) = zones(R)
+    bu = (l0 + l1) / 2
+    R.box(par, "Backdrop", bu - 1.6, R.D - 0.6, bu + 1.6, R.D - 0.5, 0, h - 0.2, (240, 240, 236), "Fabric")
+    R.box(par, "Backdrop sweep", bu - 1.6, R.D - 2.0, bu + 1.6, R.D - 0.5, 0, 0.03, (240, 240, 236), "Fabric", collide=False)
+    for e in (-1, 1):
+        q = R.p(bu + e * 1.8, R.D - 2.6)
+        vcyl(par, "Light stand", q[0], q[1], R.z, 1.8, 0.05, (40, 40, 44), "Metal")
+        box_ = R.obj(par, "Softbox", bu + e * 1.8, R.D - 2.6, 1.8, 0.7, 0.3, 0.7, (-e * 0.5, 1), (255, 255, 250), "Neon",
+                     shadow=False)
+        light(box_, rng=12, brightness=0.8)
+    q = R.p(bu, R.D * 0.35)
+    for k in range(3):
+        ang = k * 2.1
+        vcyl(par, "Tripod leg", q[0] + 0.25 * math.cos(ang), q[1] + 0.25 * math.sin(ang), R.z, 1.3, 0.04, (40, 40, 44),
+             "Metal")
+    R.obj(par, "Camera", bu, R.D * 0.35, 1.3, 0.3, 0.2, 0.22, (0, 1), (24, 24, 26), "Metal")
+    clothes_rail(R, par, (r0 + r1) / 2, R.D * 0.7, (-1, 0), w=min(2.2, R.D * 0.3))
+    for v in (v0 + 1.0, v0 + 2.2):
+        basin(R, par, R.W / 2 - 0.3, v, (-1, 0), 0.9)
+        stool(R, par, R.W / 2 - 1.0, v, accent)
+    name_board(R, par, 0.0, 0.4, (0, 1), 2.6, h - 1.0, name, (20, 20, 22))
+    staff(R, bu + 0.4, R.D * 0.35 - 0.5, (0, 1), "Photographer")
+    ceiling_lights(R, par, h, 2)
+
+
+def t_trading(R, par, name, accent, h):
+    (l0, l1), (r0, r1), (v0, v1) = zones(R)
+    for u0, u1 in ((l0, l1), (r0, r1)):
+        for u, v in grid(u0, u1, v0 + 0.8, v1 - 0.8, 2.0, 2.0, cap=8):
+            desk(R, par, u, v, (0, 1), 1.6, color=(40, 42, 46), screen=(40, 200, 120), n=3)
+    led = R.box(par, "Ticker", -R.W / 2 + 0.5, R.D - 0.15, R.W / 2 - 0.5, R.D - 0.1, h - 1.0, h - 0.4, (18, 26, 60), "Neon")
+    sign(led, "GLSS ▲ 4.2%   VAYU ▲ 1.8%   MALL ▲ 3.1%   SPIRE ▼ 0.4%   COIN ▲ 9.9%", face=face_name(R.f), style="led",
+         accent=(40, 200, 120))
+    staff(R, 0.0, R.D * 0.2, (0, 1), "Trader", "cheer")
+    amb(hidden(R, par, "Ambience", 0, R.D / 2, 1.0), "office")
+    ceiling_lights(R, par, h, 3)
+
+
+def t_hotel(R, par, name, accent, h):
+    """Guest rooms off a corridor along the back (the lift side): a bed, a desk, a TV and a shower each."""
+    cor = 1.7
+    vr = R.D - cor                                  # rooms run from the front wall to here
+    if vr < 3.2:
+        return t_cowork(R, par, name, accent, h)
+    n = max(1, int(R.W // 3.6))
+    rw = R.W / n
+    R.box(par, "Corridor carpet", -R.W / 2 + 0.1, vr + 0.06, R.W / 2 - 0.1, R.D - 0.1, 0, 0.02, (110, 40, 50), "Fabric",
+          collide=False)
+    for k in range(n):
+        u0, u1 = -R.W / 2 + k * rw, -R.W / 2 + (k + 1) * rw
+        uc = (u0 + u1) / 2
+        if abs(uc) < 1.6 and n > 2:              # no room straight in front of the lift: a little lounge
+            armchair(R, par, uc - 0.6, vr * 0.5, (1, 0), accent)
+            armchair(R, par, uc + 0.6, vr * 0.5, (-1, 0), accent)
+            plant(R, par, uc, 0.6, 1.4)
+            partition(R, par, u1 - 0.05, 0.0, u1 + 0.05, vr, h, (236, 232, 224))
+            continue
+        dc = uc - rw * 0.22
+        partition(R, par, u0, vr - 0.05, u1, vr + 0.05, h, (236, 232, 224), door=(dc, 0.9))
+        if k < n - 1:
+            partition(R, par, u1 - 0.05, 0.0, u1 + 0.05, vr, h, (236, 232, 224))
+        bed(R, par, uc - rw * 0.12, vr * 0.42, (0, -1), w=1.6, L=2.0, color=rnd.choice([(240, 240, 236), accent]))
+        R.obj(par, "Nightstand", uc - rw * 0.12 - 1.1, vr * 0.42 + 0.8, 0, 0.45, 0.4, 0.55, (0, -1), (150, 104, 66), "Wood")
+        tv(R, par, uc - rw * 0.12, 0.35, (0, 1), 1.0, "WELCOME TO " + name.split("  ·  ")[-1], accent)
+        if rw > 3.0:
+            shower(R, par, u1 - 1.15, vr - 1.25, u1 - 0.1, vr - 0.1, "left")
+        R.box(par, "Desk", u0 + 0.1, vr * 0.5 - 0.5, u0 + 0.6, vr * 0.5 + 0.5, 0.7, 0.75, (150, 104, 66), "Wood")
+        plaque = R.box(par, "Room number", dc + 0.55, vr + 0.06, dc + 0.85, vr + 0.08, 1.4, 1.6, (30, 30, 34),
+                       collide=False)
+        sign(plaque, str(100 + k), face=face_name(-R.f), style="button")
+        lamp_panel(R, par, uc, vr * 0.45, h, w=0.6, d=0.6, rng=10, brightness=0.5, lit=k % 2 == 0)
+    for u in along(-R.W / 2 + 1.0, R.W / 2 - 1.0, 3.0, 6):
+        lamp_panel(R, par, u, vr + cor / 2, h, w=0.4, d=0.4, lit=False)
+    staff(R, 1.4, R.D - 0.6, (0, -1), "Housekeeper")
+
+
+def t_spa(R, par, name, accent, h):
+    (l0, l1), (r0, r1), (v0, v1) = zones(R)
+    pu = (l0 + l1) / 2
+    R.box(par, "Pool edge", l0, v0 + 0.6, l1, v1 - 0.4, 0, 0.45, (236, 236, 232), "Marble")
+    R.box(par, "Spa pool", l0 + 0.3, v0 + 0.9, l1 - 0.3, v1 - 0.7, 0.25, 0.42, (60, 190, 220), "Glass", tr=0.25, refl=0.3,
+          collide=False)
+    fx(hidden(R, par, "Steam", pu, (v0 + v1) / 2, 0.45), "steam")
+    for v in along(v0 + 1.0, v1 - 0.8, 2.4, 4):
+        R.box(par, "Massage table", r0 + 0.4, v - 0.35, r1 - 0.4, v + 0.35, 0, 0.75, (240, 236, 228), "Fabric")
+        R.box(par, "Towel", r0 + 0.5, v - 0.3, r0 + 1.0, v + 0.3, 0.75, 0.82, WHITE, "Fabric", collide=False)
+    for k in range(6):
+        q = R.p(rnd.uniform(-R.W / 2 + 0.5, R.W / 2 - 0.5), R.D - 0.4)
+        ball(par, "Candle", q[0], q[1], R.z + 0.08, 0.12, (255, 190, 90), "Neon", collide=False, shadow=False)
+    for e in (-1, 1):
+        plant(R, par, e * (R.W / 2 - 0.4), R.D - 0.5, 1.8)
+    staff(R, (r0 + r1) / 2, v0 + 0.3, (0, 1), "Spa therapist")
+    amb(hidden(R, par, "Music", 0, R.D / 2, 1.2), "zen")
+    ceiling_lights(R, par, h, 2)
+
+
+def t_library(R, par, name, accent, h):
+    (l0, l1), (r0, r1), (v0, v1) = zones(R)
+    for u0, u1 in ((l0, l1), (r0, r1)):
+        for v in along(v0 + 1.2, v1 - 0.8, 1.6, 6):
+            shelf(R, par, (u0 + u1) / 2, v, (0, -1), w=u1 - u0 - 0.3, h=min(2.2, h - 0.4), rows=4)
+    for v in along(v0 + 0.6, v1 - 0.4, 3.0, 3):
+        table(R, par, 0.0, v, 0.9, 1.6, (150, 104, 66))
+    for u, face in ((-R.W / 2 + 0.6, (1, 0)), (R.W / 2 - 0.6, (-1, 0))):
+        armchair(R, par, u, v0 + 0.4, face, (120, 50, 40))
+    staff(R, CLEAR + 0.4, v0 + 0.2, (0, 1), "Librarian")
+    ceiling_lights(R, par, h, 3)
+
+
+def t_kids(R, par, name, accent, h):
+    (l0, l1), (r0, r1), (v0, v1) = zones(R)
+    soft = [(250, 90, 90), (90, 180, 250), (250, 210, 60), (110, 210, 120), (200, 120, 230)]
+    R.box(par, "Soft floor", -R.W / 2 + 0.1, 0.1, R.W / 2 - 0.1, R.D - 0.1, 0, 0.06, (120, 200, 230), "Fabric")
+    bu = (l0 + l1) / 2
+    R.box(par, "Ball pit wall", l0, v0 + 1.0, l1, v0 + 1.1, 0, 0.6, rnd.choice(soft), "Fabric")
+    R.box(par, "Ball pit wall", l0, v0 + 3.4, l1, v0 + 3.5, 0, 0.6, rnd.choice(soft), "Fabric")
+    for k in range(26):
+        q = R.p(rnd.uniform(l0 + 0.2, l1 - 0.2), rnd.uniform(v0 + 1.3, v0 + 3.2))
+        ball(par, "Ball", q[0], q[1], R.z + 0.2 + rnd.uniform(0, 0.2), 0.26, rnd.choice(soft), collide=False)
+    R.box(par, "Slide tower", r0 + 0.2, R.D * 0.55, r0 + 1.4, R.D * 0.55 + 1.2, 0, 1.4, rnd.choice(soft), "SmoothPlastic")
+    ramp(par, "Slide", *R.p(r0 + 0.8, R.D * 0.55 - 1.3), R.z, 2.6, 0.8, 1.35, math.atan2(*(-R.f)[::-1]), (250, 210, 60))
+    for u, v in grid(r0 + 0.6, r1 - 0.4, v0 + 0.6, R.D * 0.4, 1.6, 1.6, cap=3):
+        table(R, par, u, v, 0.8, 0.8, rnd.choice(soft), h=0.5)
+    for k in range(8):
+        u, v = rnd.uniform(-R.W / 2 + 0.5, R.W / 2 - 0.5), rnd.uniform(R.D * 0.7, R.D - 0.5)
+        R.obj(par, "Soft block", u, v, 0, 0.5, 0.5, 0.5, (0, 1), rnd.choice(soft), "Fabric")
+    staff(R, CLEAR + 0.5, v0 + 0.4, (0, 1), "Play leader", "wave")
+    amb(hidden(R, par, "Ambience", 0, R.D / 2, 1.0), "kids")
+    ceiling_lights(R, par, h, 2)
+
+
+OFFICE_FLOORS = [  # name, theme
+    ("NORTHSTAR LEGAL", t_law), ("ROCKETSHIP LABS", t_startup), ("PIXELFORGE GAMES", t_gamestudio),
+    ("LINE & FORM DESIGN", t_design), ("LOTUS YOGA STUDIO", t_yoga), ("SOUNDWAVE STUDIOS", t_recording),
+    ("CLOUDCORE DATA", t_servers), ("BRIGHT MINDS ACADEMY", t_school), ("FLASHPOINT PHOTO", t_photo),
+    ("GLASS CITY TRADING", t_trading), ("HORIZON CONSULTING", t_office), ("HIVE CO-WORKING", t_cowork),
+    ("SMILE DENTAL", t_clinic), ("ORBIT ARCHITECTS", t_design), ("FRESH START CAREERS", t_office),
+]
+OFFICE_ACCENTS = [(60, 200, 255), (255, 120, 80), (160, 90, 255), (250, 190, 60), (120, 230, 160), (255, 90, 160)]
+office_floor_no = [0]
+
+
+def next_office_floor():
+    k = office_floor_no[0]
+    office_floor_no[0] += 1
+    return OFFICE_FLOORS[k % len(OFFICE_FLOORS)], OFFICE_ACCENTS[k % len(OFFICE_ACCENTS)]
+
+
+# ---- apartment floors: a corridor from the lift with a flat either side
+FLAT_SOFAS = [(110, 120, 140), (150, 90, 70), (90, 120, 100), (200, 190, 170), (70, 70, 80), (160, 120, 160)]
+
+
+def flat(F, par, x_lo, x_hi, toward_corridor, s_front, label, accent, h=2.85):
+    """One flat: F is the floor (front = the street), the flat spans F's u from x_lo to x_hi and its
+    whole depth; toward_corridor is +1 or -1 in F's u. Inside the flat we use its own room, whose
+    front is the corridor wall: u along the corridor (+u towards the street when s_front > 0)."""
+    R = F.sub(x_lo, 0.0, x_hi, F.D, front=tuple(F.a * toward_corridor))
+    W, D = R.W, R.D
+    s = 1 if float(np.dot(R.a, F.f)) * s_front > 0 else -1     # +s*u runs towards the street
+    U = lambda x: s * x                                         # flat-local: x > 0 is the street end
+    t = 0.12
+    wall_c = (246, 244, 238)
+    # the front door, near the middle, off the corridor
+    du = U(-0.6)
+    m = new(par, "Model", "Flat " + label)
+    opens = [(du, 1.0, 0.0, 2.15, "door")]
+    owall(R, m, "front", 0.0, h, t, wall_c, "SmoothPlastic", opens)
+    swing_door(m, R, "front", du, 1.0, t, rnd.choice([(120, 80, 50), (40, 70, 110), (160, 40, 40), (40, 90, 60), WHITE]))
+    plaque = R.box(m, "Flat number", du + 0.65, -0.03, du + 1.0, 0.0, 1.55, 1.8, (30, 30, 34), collide=False)
+    sign(plaque, label, face=face_name(-np.array(R.f)), style="button")
+    # bedroom at the far end from the street, through a doorway near the outside wall
+    Lb = min(4.4, W * 0.36)
+    pb = U(-W / 2 + Lb)
+    partition(R, m, pb - 0.05, t, pb + 0.05, D, h, wall_c, door=(D - 1.2, 0.95))
+    # bathroom in the corridor corner of the bedroom
+    bx0, bx1 = sorted((U(-W / 2 + 0.05), U(-W / 2 + 2.3)))
+    partition(R, m, bx0, 2.1, bx1, 2.2, h, (230, 236, 240), door=(U(-W / 2 + 1.55), 0.8))
+    partition(R, m, U(-W / 2 + 2.3) - 0.05, t, U(-W / 2 + 2.3) + 0.05, 2.1, h, (230, 236, 240))
+    R.box(m, "Bathroom tiles", bx0, t, bx1, 2.1, 0, 0.02, (220, 228, 232), "Marble", collide=False)
+    toilet(R, m, U(-W / 2 + 0.45), 0.7, (s * 1, 0))
+    basin(R, m, U(-W / 2 + 1.5), t + 0.25, (0, 1), 0.7)
+    sa, sb = sorted((U(-W / 2 + 0.1), U(-W / 2 + 1.05)))
+    shower(R, m, sa, 1.2, sb, 2.05, "front")
+    lamp_panel(R, m, U(-W / 2 + 1.15), 1.1, h - 0.02, w=0.4, d=0.4, lit=False)
+    # bedroom
+    bc = U(-W / 2 + 2.3 + (Lb - 2.3) / 2) if Lb > 3.4 else U(-W / 2 + Lb / 2)
+    kid = rnd.random() < 0.3
+    if kid:
+        for z_ in (0.0, 1.2):
+            R.obj(m, "Bunk", bc, D - 1.05, z_, 0.95, 2.0, 0.3, (0, -1), rnd.choice(ART), "Wood")
+            R.obj(m, "Bunk mattress", bc, D - 1.05, z_ + 0.3, 0.9, 1.9, 0.15, (0, -1), rnd.choice(ART), "Fabric")
+        R.obj(m, "Toy box", bc + s * 0.9, D * 0.5, 0, 0.6, 0.4, 0.45, (s * 1, 0), rnd.choice(ART), "Wood")
+    else:
+        bed(R, m, bc, D - 1.15, (0, -1), w=1.5, L=2.0, color=rnd.choice(ART))
+        R.obj(m, "Nightstand", bc + 1.05, D - 0.3, 0, 0.45, 0.4, 0.5, (0, -1), (150, 104, 66), "Wood")
+    R.obj(m, "Wardrobe", U(-W / 2 + Lb - 0.4), D * 0.45, 0, 1.4, 0.55, 2.0, (-s, 0), (236, 232, 224), "Wood")
+    rug(R, m, bc, D - 2.6, 1.6, 1.0, rnd.choice(ART))
+    lamp_panel(R, m, bc, D * 0.6, h - 0.02, w=0.6, d=0.6, rng=12, brightness=0.5, lit=False)
+    # kitchen along the corridor wall, between the bedroom and the front door
+    ka, kb = sorted((U(-W / 2 + Lb + 0.95), U(-0.6 - 0.65)))
+    if kb - ka > 2.2:
+        kitchen_run(R, m, ka, kb, t, 1, rnd.choice([(240, 240, 236), (60, 70, 80), (200, 170, 130)]),
+                    rnd.choice([(60, 62, 66), (230, 226, 218)]))
+        fridge(R, m, U(-W / 2 + Lb + 0.5), t + 0.4, (0, 1))
+    # dining by the window
+    dining(R, m, U(W * 0.02), D - 1.3, 1.2, 0.8, 4, chairs=rnd.choice([(150, 104, 66), (40, 40, 44), WHITE]))
+    pendant(R, m, U(W * 0.02), D - 1.3, h, 0.9)
+    # living room at the street end
+    lc = U(W / 2 - 2.2)
+    rug(R, m, lc, D * 0.5, 2.4, 2.2, rnd.choice(ART))
+    tv(R, m, lc, t + 0.3, (0, 1), 1.3, rnd.choice(["NEWS", "CRICKET LIVE", "CARTOONS", "GLASS CITY TV", "COOKING"]),
+       rnd.choice(ART))
+    sofa(R, m, lc, D * 0.5 + 1.0, (0, -1), w=2.2, color=rnd.choice(FLAT_SOFAS))
+    table(R, m, lc, D * 0.5, 1.0, 0.55, (150, 104, 66), h=0.4)
+    armchair(R, m, U(W / 2 - 0.7), D * 0.5, (-s, 0), accent)
+    floor_lamp(R, m, U(W / 2 - 0.5), D - 0.5)
+    plant(R, m, U(W / 2 - 0.45), t + 0.45, 1.3)
+    painting(R, m, lc, D - 0.06, (0, -1), 1.4, 0.9, 1.4)
+    lamp_panel(R, m, lc, D * 0.5, h - 0.02, rng=14, brightness=0.55, lit=rnd.random() < 0.5)
+    if rnd.random() < 0.35:
+        staff(R, lc + s * 0.4, D * 0.5 + 0.2, (0, -1) if rnd.random() < 0.5 else (-s, 0), "Resident",
+              rnd.choice(["idle", "wave", "idle"]))
+    return m
+
+
+def flats_floor(F, par, building, floor_no, accent, half_corridor, h=2.85, v_end=None):
+    """An apartment floor: a corridor from the lift (in the middle of the back) to the street, a
+    flat either side."""
+    hc = half_corridor
+    m = new(par, "Folder", "Floor %d" % floor_no)
+    F.box(m, "Corridor carpet", -hc + 0.05, 0.1, hc - 0.05, v_end or F.D - 0.1, 0, 0.02, (120, 46, 56), "Fabric",
+          collide=False)
+    for k, (x_lo, x_hi, toward) in enumerate(((-F.W / 2, -hc, 1), (hc, F.W / 2, -1))):
+        flat(F, m, x_lo, x_hi, toward, 1, "%d%s" % (floor_no, "AB"[k]), accent, h)
+    plant(F, m, 0.0, 0.6, 1.3)
+    sg = F.obj(m, "Floor sign", 0.0, F.D * 0.55, 1.8, 0.02, 0.9, 0.5, (1, 0), (30, 30, 34), collide=False)
+    sign(sg, "FLOOR %d" % floor_no, face="Front", style="button")
+    for v in along(1.0, F.D - 2.5, 3.0, 5):
+        lamp_panel(F, m, 0.0, v, h - 0.02, w=0.5, d=0.5, rng=12, brightness=0.45, lit=v < 2.5)
+    if rnd.random() < 0.35:
+        coin(*F.p(0.0, F.D * 0.3), F.z + 1.0)
+
+
+# ---- tower floors: front_fn fills the side in front of the lift, back_fn the side behind it
+TOWER_FLOORS = [
+    ("Trading floor", t_trading, t_office), ("Grand Hotel", t_hotel, t_hotel), ("Sky Gym", t_gym, t_yoga),
+    ("Executive offices", t_office, t_cowork), ("Sky Spa", t_spa, t_yoga), ("Art Gallery", t_gallery, t_gallery),
+    ("Sky Library", t_library, t_school), ("Kids' Club", t_kids, t_kids), ("Cloud Data Centre", t_servers, t_servers),
+    ("Garden Restaurant", t_restaurant, t_cafe), ("Residences", t_penthouse, t_penthouse), ("Co-working", t_cowork, t_startup),
+    ("Game Studio", t_gamestudio, t_startup), ("Sound Studios", t_recording, t_music),
+]
+tower_floor_no = [0]
+
+
+def next_tower_floor():
+    k = tower_floor_no[0]
+    tower_floor_no[0] += 1
+    return TOWER_FLOORS[k % len(TOWER_FLOORS)]
+
+
+# ---- the mall's shops get the same treatment as the city's: a real shop inside every front
+def t_fashion(R, par, name, accent, h):
+    (l0, l1), (r0, r1), (v0, v1) = zones(R)
+    for v in along(v0 + 0.8, v1 - 0.4, 1.5, 4):
+        clothes_rail(R, par, (l0 + l1) / 2, v, (0, -1), w=max(0.8, l1 - l0 - 0.2))
+    for v in along(v0 + 0.8, v1 - 1.6, 1.5, 3):
+        clothes_rail(R, par, (r0 + r1) / 2, v, (0, -1), w=max(0.8, r1 - r0 - 0.2))
+    for u in (l0 + 0.3, r1 - 0.3):
+        mannequin(R, par, u, 0.5, rnd.choice(ART))
+    counter(R, par, r0, v1 - 0.9, r1, v1 - 0.2, (240, 240, 236), (30, 30, 34))
+    R.box(par, "Mirror", -0.6, R.D - 0.06, 0.6, R.D - 0.03, 0.2, 2.0, (210, 225, 232), "Glass", refl=0.7)
+    staff(R, (r0 + r1) / 2, v1 + 0.1, (0, -1), "Shop assistant")
+    ceiling_lights(R, par, h, 2)
+
+
+def t_shoes(R, par, name, accent, h):
+    (l0, l1), (r0, r1), (v0, v1) = zones(R)
+    for wall_u, face in ((-R.W / 2 + 0.2, (1, 0)), (R.W / 2 - 0.2, (-1, 0))):
+        for v in along(v0 + 0.6, v1 - 0.4, 1.2, 5):
+            R.obj(par, "Shoe wall", wall_u, v, 0, 1.1, 0.3, min(2.2, h - 0.2), face, (240, 238, 232), "Wood")
+            for z in (0.4, 0.9, 1.4, 1.9):
+                if z > h - 0.4:
+                    continue
+                for k in (-1, 1):
+                    su, sv = R.at(wall_u, v, face, 0.18, k * 0.25)
+                    R.obj(par, "Shoe", su, sv, z, 0.16, 0.3, 0.12, face, rnd.choice(ART), "Fabric", collide=False)
+    for v in (R.D * 0.4, R.D * 0.75):
+        R.obj(par, "Bench", 0.0, v, 0, 1.4, 0.5, 0.42, (0, 1), (40, 40, 44), "Fabric")
+    staff(R, 0.6, R.D * 0.4 + 0.6, (0, -1), "Shop assistant")
+    ceiling_lights(R, par, h, 2)
+
+
+def t_homeware(R, par, name, accent, h):
+    (l0, l1), (r0, r1), (v0, v1) = zones(R)
+    rug(R, par, (l0 + l1) / 2, R.D * 0.4, max(1.0, l1 - l0), 2.4, accent)
+    sofa(R, par, (l0 + l1) / 2, R.D * 0.4 + 0.6, (0, -1), w=max(1.0, l1 - l0 - 0.2), color=rnd.choice(FLAT_SOFAS))
+    floor_lamp(R, par, l0 + 0.2, R.D * 0.75)
+    bed(R, par, (r0 + r1) / 2, R.D - 1.1, (0, -1), w=max(1.0, min(1.6, r1 - r0)), L=2.0, color=accent)
+    shelf(R, par, 0.0, R.D - 0.25, (0, -1), w=1.6, h=min(2.0, h - 0.2), color=(240, 238, 232),
+          stock=[(200, 200, 196), accent, (150, 104, 66)], rows=3)
+    plant(R, par, r1 - 0.2, 0.4, 1.4)
+    staff(R, r0, R.D * 0.5, (-1, 0), "Shop assistant")
+    ceiling_lights(R, par, h, 2)
+
+
+def t_toys(R, par, name, accent, h):
+    (l0, l1), (r0, r1), (v0, v1) = zones(R)
+    for wall_u, face in ((-R.W / 2 + 0.25, (1, 0)), (R.W / 2 - 0.25, (-1, 0))):
+        for v in along(v0 + 0.8, v1 - 0.4, 1.7, 4):
+            shelf(R, par, wall_u, v, face, w=1.6, h=min(2.0, h - 0.2), color=(250, 250, 248),
+                  stock=[(250, 90, 90), (90, 180, 250), (250, 210, 60), (110, 210, 120), (200, 120, 230)], rows=3)
+    q = R.p(0.0, R.D * 0.7)
+    ball(par, "Giant teddy", q[0], q[1], R.z + 0.6, 1.2, (180, 130, 80), "Fabric")
+    ball(par, "Teddy head", q[0], q[1], R.z + 1.5, 0.75, (180, 130, 80), "Fabric")
+    for e in (-1, 1):
+        ball(par, "Teddy ear", q[0] + e * 0.3 * R.a[0], q[1] + e * 0.3 * R.a[1], R.z + 1.85, 0.25, (150, 100, 60), "Fabric")
+    vendor(R.box(par, "Balloon stand", -0.3, 0.5, 0.3, 0.9, 0, 1.0, accent, "SmoothPlastic"), "Balloon")
+    for k in range(5):
+        q = R.p(rnd.uniform(-0.35, 0.35), 0.7 + rnd.uniform(-0.2, 0.2))
+        ball(par, "Balloon", q[0], q[1], R.z + 1.6 + rnd.uniform(0, 0.5), 0.4, rnd.choice(ART), "SmoothPlastic", collide=False)
+    staff(R, 0.9, 1.0, (0, -1), "Toy seller", "wave")
+    ceiling_lights(R, par, h, 2)
+
+
+def t_beauty(R, par, name, accent, h):
+    (l0, l1), (r0, r1), (v0, v1) = zones(R)
+    for u0, u1 in ((l0, l1), (r0, r1)):
+        for v in along(v0 + 0.9, v1 - 0.6, 1.8, 3):
+            counter(R, par, u0, v - 0.35, u1, v + 0.35, (250, 250, 248), (30, 30, 34))
+            for k in range(6):
+                x = u0 + 0.1 + (u1 - u0 - 0.2) * k / 5
+                q = R.p(x, v)
+                vcyl(par, "Bottle", q[0], q[1], R.z + 0.95, rnd.uniform(0.1, 0.22), 0.07, rnd.choice(ART), "Glass",
+                     collide=False)
+    for e in (-1, 1):
+        R.box(par, "Mirror", e * (R.W / 2 - 0.06) - 0.03, R.D * 0.3, e * (R.W / 2 - 0.06) + 0.03, R.D * 0.7, 0.9, 2.0,
+              (210, 225, 232), "Glass", refl=0.7)
+    staff(R, 0.6, R.D * 0.55, (0, -1), "Beauty adviser")
+    ceiling_lights(R, par, h, 2)
+
+
+def t_sports(R, par, name, accent, h):
+    (l0, l1), (r0, r1), (v0, v1) = zones(R)
+    for v in along(v0 + 0.6, v1 - 0.4, 1.2, 4):
+        q = R.p(l0 + 0.4, v)
+        for k in range(3):
+            ball(par, "Ball", q[0] + rnd.uniform(-0.2, 0.2), q[1] + rnd.uniform(-0.2, 0.2), R.z + 0.2 + k * 0.05, 0.3,
+                 rnd.choice([(240, 120, 40), WHITE, (240, 200, 40)]))
+        R.box(par, "Ball bin", l0 + 0.1, v - 0.4, l0 + 0.7, v + 0.4, 0, 0.35, (40, 40, 44), "Metal")
+    clothes_rail(R, par, (r0 + r1) / 2, R.D * 0.35, (0, -1), w=max(0.8, r1 - r0 - 0.2))
+    bu, bv = (r0 + r1) / 2, R.D * 0.72
+    for e in (-0.5, 0.5):
+        q = R.p(bu, bv + e)
+        mbox(par, "Bike wheel", (q[0], q[1], R.z + 0.36), ((R.f[0], R.f[1], 0), (R.a[0], R.a[1], 0), (0, 0, 1)),
+             (0.04, 0.7, 0.7), (30, 30, 32), shape=2)
+    R.obj(par, "Bike frame", bu, bv, 0.36, 0.05, 1.0, 0.4, (0, 1), accent, "Metal")
+    R.obj(par, "Treadmill", 0.0, R.D - 1.0, 0, 0.8, 1.8, 0.22, (0, -1), (40, 42, 46), "Metal")
+    staff(R, -0.8, R.D - 1.4, (0, -1), "Shop assistant", "cheer")
+    ceiling_lights(R, par, h, 2)
+
+
+def t_bricks(R, par, name, accent, h):
+    (l0, l1), (r0, r1), (v0, v1) = zones(R)
+    bricks = [(220, 40, 40), (40, 100, 220), (250, 200, 30), (40, 160, 70), (250, 250, 248), (250, 130, 30)]
+    for u0, u1 in ((l0, l1), (r0, r1)):
+        for v in along(v0 + 0.9, v1 - 0.4, 1.6, 3):
+            u = (u0 + u1) / 2
+            z = 0.0
+            for k in range(rnd.randint(4, 7)):
+                bh = 0.32
+                R.obj(par, "Brick", u, v, z, 0.64, 0.32, bh, (0, 1) if k % 2 else (1, 0), rnd.choice(bricks), "SmoothPlastic")
+                ball(par, "Stud", *R.p(u, v), R.z + z + bh + 0.03, 0.1, rnd.choice(bricks), collide=False)
+                z += bh
+    table(R, par, 0.0, R.D * 0.8, 1.6, 1.0, (250, 250, 248), h=0.7)
+    for k in range(10):
+        R.obj(par, "Brick", rnd.uniform(-0.6, 0.6), R.D * 0.8 + rnd.uniform(-0.3, 0.3), 0.7, 0.16, 0.08, 0.1, (0, 1),
+              rnd.choice(bricks), collide=False)
+    staff(R, 0.0, R.D * 0.8 + 0.8, (0, -1), "Master builder")
+    ceiling_lights(R, par, h, 2)
+
+
+def t_consoles(R, par, name, accent, h):
+    (l0, l1), (r0, r1), (v0, v1) = zones(R)
+    for k, (u, face) in enumerate(((l0 + 0.3, (1, 0)), (r1 - 0.3, (-1, 0)))):
+        for j, v in enumerate(along(v0 + 0.9, v1 - 0.5, 1.8, 3)):
+            sc = R.obj(par, "Demo screen", u, v, 0.9, 1.0, 0.08, 0.6, face, rnd.choice(ART), "Neon", shadow=False)
+            values(sc, Arcade=("dash", "catch", "memory")[(k + j) % 3])
+            R.obj(par, "Demo stand", u, v, 0, 0.9, 0.4, 0.9, face, (24, 24, 28), "Metal")
+    shelf(R, par, 0.0, R.D - 0.25, (0, -1), w=2.0, h=min(2.0, h - 0.2), color=(24, 24, 28), stock=ART, rows=4)
+    staff(R, 0.8, R.D - 0.9, (0, -1), "Gamer", "idle")
+    ceiling_lights(R, par, h, 2)
+
+
+def t_foodstall(menu, item):
+    """A food-court counter: a kitchen behind the counter, a menu board and something to eat."""
+    def fn(R, par, name, accent, h):
+        counter(R, par, -R.W / 2 + 0.3, R.D * 0.45, R.W / 2 - 0.3, R.D * 0.45 + 0.7, accent, (240, 240, 236), h=1.05)
+        vendor(R.box(par, "Pass", -0.8, R.D * 0.45 - 0.02, 0.8, R.D * 0.45 + 0.1, 1.05, 1.12, (240, 240, 236), "Metal"),
+               item)
+        counter(R, par, -R.W / 2 + 0.3, R.D - 0.8, R.W / 2 - 0.3, R.D - 0.12, (200, 204, 208), (180, 184, 188),
+                mat="Metal", top_mat="Metal")
+        R.box(par, "Hob", -R.W / 2 + 0.6, R.D - 0.7, -R.W / 2 + 1.4, R.D - 0.22, 0.95, 0.97, (20, 20, 22), "Glass",
+              collide=False)
+        R.box(par, "Grill", R.W / 2 - 1.4, R.D - 0.7, R.W / 2 - 0.6, R.D - 0.22, 0.95, 0.98, (255, 110, 40), "Neon",
+              collide=False, shadow=False)
+        screen_sign(R, par, 0.0, R.D * 0.45 - 0.05, (0, -1), R.W - 1.4, 0.5, h - 0.7, menu, accent)
+        fx(hidden(R, par, "Steam", -R.W / 4, R.D - 0.5, 1.0), "steam")
+        staff(R, 0.0, R.D * 0.45 + 1.2, (0, -1), "Cook")
+        ceiling_lights(R, par, h, 2)
+    return fn
+
+
+MALL_THEMES = {
+    "LOOM": t_fashion, "PAGEBOUND": t_books, "VOLT": t_tech, "PETAL & STEM": t_florist, "SOLE STORY": t_shoes,
+    "NOOK HOME": t_homeware, "ARC TOYS": t_toys, "HUE BEAUTY": t_beauty,
+    "KAAPI CORNER": t_foodstall("FILTER KAAPI · MASALA CHAI · BUN MASKA · BADAM MILK", "Filter coffee"),
+    "DOSA HOUSE": t_foodstall("MASALA DOSA · IDLI VADA · RAVA DOSA · BISI BELE BATH", "Masala dosa"),
+    "NOODLE BAR": t_foodstall("HAKKA NOODLES · RAMEN · DUMPLINGS · SPRING ROLLS", "Noodles"),
+    "GELATO LAB": t_foodstall("MANGO · PISTACHIO · CHOCO CHIP · TENDER COCONUT", "Gelato"),
+    "PIXEL PLAY": t_arcade, "GAME ON": t_consoles, "SPORTS DEPOT": t_sports, "BRICKWORKS": t_bricks,
+    "TRAILHEAD": t_sports, "STITCH & CO": t_fashion, "SPROUT KIDS": t_toys,
+}
 
 
 # ---- tower lobbies: double height, marble, an LED wall with the tower's name
@@ -2130,6 +2933,8 @@ def t_grand_lobby(R, par, name, accent, h, variant=0):
     (l0, l1), (r0, r1), (v0, v1) = zones(R)
     cu = (r0 + r1) / 2
     counter(R, par, cu - 2.6, R.D * 0.5, cu + 2.6, R.D * 0.5 + 0.9, (230, 228, 222), (40, 38, 36), h=1.1)
+    staff(R, cu, R.D * 0.5 + 1.3, (0, -1), "Receptionist")
+    amb(hidden(R, par, "Ambience", 0.0, R.D * 0.5, 2.0), "lobby")
     neon_strip(R, par, cu - 2.6, R.D * 0.5 - 0.04, cu + 2.6, R.D * 0.5, 0.15, accent)
     screen_sign(R, par, R.W / 2 - 0.15, R.D * 0.5, (-1, 0), min(7.0, R.D * 0.6), 3.6, 2.2, name, accent, style="led")
     for u in (l0 + 1.2, r1 - 1.2):
@@ -2153,6 +2958,7 @@ def t_grand_lobby(R, par, name, accent, h, variant=0):
                     mbox(m, "Wheel", (w_[0], w_[1], R.z + 0.47), ((X[0], X[1], 0), (0, 0, 1), (Z[0], Z[1], 0)),
                          (0.26, 0.7, 0.7), (26, 26, 28), shape=2)
             light(m.kids[0], rng=14, brightness=0.8)
+            staff(R, u + 2.6, v, (-1, 0), "Car dealer", "wave")
     elif variant == 2:                   # an atrium garden
         for v in (R.D * 0.3, R.D * 0.7):
             u = (l0 + l1) / 2
@@ -2207,6 +3013,9 @@ def l_bar(R, par, name, accent, h, core):
     neon_strip(R, par, -core - 1.0, vb - 0.03, core + 1.0, vb, 0.1, accent)
     for u in np.arange(-core - 0.6, core + 0.8, 0.75):
         stool(R, par, u, vb - 0.45, accent)
+    vendor(R.box(par, "Bar tap", -0.3, vb + 0.1, 0.3, vb + 0.4, 1.1, 1.5, (200, 170, 90), "Metal"), "Mocktail")
+    staff(R, 0.8, vb + 1.1, (0, -1), "Bartender")
+    amb(hidden(R, par, "Music", 0.0, vb, 1.5), "lounge")
     R.box(par, "Back bar", -core - 1.0, R.D - 0.6, core + 1.0, R.D - 0.25, 1.1, 2.6, (40, 30, 26), "Wood")
     R.box(par, "Back bar glow", -core - 0.9, R.D - 0.62, core + 0.9, R.D - 0.6, 1.3, 2.4, accent, "Neon", collide=False)
     for u, v, face in thin(window_spots(R, 4.4), 14):
@@ -2261,6 +3070,11 @@ def l_club(R, par, name, accent, h, core):
     neon_strip(R, par, -1.6, vb - 0.03, 1.6, vb, 0.5, accent, h=0.3)
     for e in (-1, 1):
         R.box(par, "Speaker", e * 2.4 - 0.4, vb, e * 2.4 + 0.4, vb + 0.7, 0, 2.0, (16, 16, 18))
+    staff(R, 0.0, vb + 1.3, (0, -1), "DJ", "dj")
+    for k, (u, v) in enumerate(thin(lounge_spots(R, core, 2.0), 6)):
+        staff(R, u, v, (rnd.choice([-1, 1]), 0), "Dancer", ("dance", "dance2", "dance3")[k % 3])
+    amb(hidden(R, par, "Music", 0.0, vb, 1.5), "club")
+    fx(hidden(R, par, "Haze", 0.0, R.D / 2, h - 0.8), "haze")
     screen_sign(R, par, 0.0, R.D - 0.3, (0, -1), min(8.0, R.W - 4), 2.6, 1.4, name, accent, style="led")
     for side_u in (-R.W / 2 + 0.3, R.W / 2 - 0.3):
         R.box(par, "Neon strip", side_u - 0.03, 0.5, side_u + 0.03, R.D - 0.5, h - 0.4, h - 0.32, accent, "Neon",
@@ -2280,6 +3094,8 @@ def l_dining(R, par, name, accent, h, core):
         ball(par, "Candle", q[0], q[1], R.z + 0.82, 0.1, (255, 190, 90), "Neon", collide=False, shadow=False)
     vb = R.D / 2 + core + 1.8
     R.obj(par, "Grand piano", 0.0, vb, 0, 1.5, 2.0, 1.0, (0, -1), (16, 16, 18), refl=0.25)
+    staff(R, 0.0, vb - 1.3, (0, 1), "Pianist", "sit", z=0.45)
+    amb(hidden(R, par, "Music", 0.0, vb, 1.2), "piano")
     q = R.p(0.0, vb - 1.3)
     seat(par, q[0], q[1], R.z, R.phi(0, 1), (16, 16, 18), back=False, w=0.9)
 
@@ -2303,6 +3119,10 @@ def l_pool(R, par, name, accent, h, core):
     counter(R, par, core + 2.2, vb - 2.2, core + 3.0, vb, (240, 240, 236), (40, 38, 36), h=1.1)
     for v in along(vb - 2.0, vb, 0.7, 3):
         stool(R, par, core + 1.75, v, accent)
+    vendor(R.box(par, "Juice bar", core + 2.2, vb - 2.2, core + 3.0, vb, 1.1, 1.2, accent, "Neon", collide=False),
+           "Fresh juice")
+    staff(R, core + 3.5, vb - 1.1, (-1, 0), "Lifeguard")
+    amb(hidden(R, par, "Music", 0.0, R.D / 2, 1.2), "pool")
 
 
 def l_cinema(R, par, name, accent, h, core):
@@ -2396,6 +3216,8 @@ def r_bar(R, par, accent):
     counter(R, par, -R.W / 2 + 1.0, 1.0, -R.W / 2 + 1.8, min(R.D - 4.5, 7.0), (40, 30, 26), (230, 228, 222), h=1.1)
     for v in np.arange(1.5, min(R.D - 4.5, 7.0), 0.8):
         stool(R, par, -R.W / 2 + 2.3, v, accent)
+    vendor(R.box(par, "Bar tap", -R.W / 2 + 1.1, 2.0, -R.W / 2 + 1.7, 2.4, 1.1, 1.5, (200, 170, 90), "Metal"), "Mocktail")
+    staff(R, -R.W / 2 + 0.6, 3.0, (1, 0), "Bartender")
     for u, v in grid(0.0, R.W / 2 - 1.0, 1.0, R.D - 4.5, 3.0, 3.0, cap=6):
         table(R, par, u, v, 0.8, 0.8, (240, 236, 228), mat="Marble")
         chair(R, par, u - 0.65, v, (1, 0), accent)
@@ -2519,6 +3341,18 @@ def solid_back(m, back, br, f, z_lo, z_hi, color, glass, levels):
         bands(m, *br, za, zb, glass, skip=(toward(f),))
 
 
+def uv_of(R, pt):
+    """A model point in a room's (u, v)."""
+    d = np.asarray(pt, float) - R.o
+    return float(np.dot(d, R.a)), -float(np.dot(d, R.f))
+
+
+def hole_extent(R, hole):
+    """The lift shaft's rectangle in R's (u, v): u0, u1, v0, v1."""
+    us, vs = zip(*[uv_of(R, (x, y)) for x in (hole[0], hole[2]) for y in (hole[1], hole[3])])
+    return min(us), max(us), min(vs), max(vs)
+
+
 def office(parent, rect, block, floors, color, glass, biz, roof, fh=3.6, z0=0.1):
     x0, y0, x1, y1 = rect
     f = facing(((x0 + x1) / 2, (y0 + y1) / 2), block)
@@ -2531,21 +3365,19 @@ def office(parent, rect, block, floors, color, glass, biz, roof, fh=3.6, z0=0.1)
     zo = zg + gh
     n_up = max(2, floors - 1)
     zr = zo + fh * n_up
-    R = Room(x0, y0, x1, y1, f, zg)
-    F, fr, back, br = split_front(R, 15.0)
+    F = Room(x0, y0, x1, y1, f, zg)                  # the whole building is walk-in, every floor
     cd = 1.8
     q = F.p(0.0, F.D - t - (cd / 2 + 0.4))
-    stops = [(zg, "G", title), (zo, "1", "Offices"), (zr, "R", roof_name)]
+    tenants = [next_office_floor() for _ in range(n_up)]
+    stops = [(zg, "G", title)] + [(zo + fh * k, str(k + 1), tn[0][0].title()) for k, tn in enumerate(tenants)] + \
+            [(zr, "R", roof_name)]
     hole = elevator(m, title, q[0], q[1], f, stops, cw=2.0, cd=cd, door=1.1, style="steel", vmax=11.0)
-    BUILDINGS.append((title, fr, [(s[0], s[2]) for s in stops]))
-    for z_, th, col, mat in ((zg, 0.3, (214, 210, 202), "Marble"), (zo, 0.35, SOFFIT, "SmoothPlastic"),
-                             (zr, 0.4, (180, 180, 176), "Concrete")):
-        for r in ring(*fr, hole):
+    BUILDINGS.append((title, rect, [(s_[0], s_[2]) for s_ in stops], [s_[1] for s_ in stops]))
+    slabs = [(zg, 0.3, (214, 210, 202), "Marble")] + [(zo + fh * k, 0.35, SOFFIT, "SmoothPlastic") for k in range(n_up)] + \
+            [(zr, 0.4, (180, 180, 176), "Concrete")]
+    for z_, th, col, mat in slabs:
+        for r in ring(*rect, hole):
             aabb(m, "Floor", r[0], r[1], z_ - th, r[2], r[3], z_, col, mat)
-            if z_ == zo:
-                aabb(m, "Carpet", r[0], r[1], z_, r[2], r[3], z_ + 0.02, (96, 100, 110), "Fabric", collide=False)
-    levels = [(zg + 1.0, zg + 3.4), (zo + 0.9, zo + 2.9)] + [(zo + fh * k + 1.0, zo + fh * k + 2.8) for k in range(1, n_up)]
-    solid_back(m, back, br, f, z0 - 0.2, zr - 0.4, color, glass, levels)
     # ground floor: the business
     storefront(m, F, t, gh - 0.35, color=color)
     fn = face_name(f)
@@ -2554,29 +3386,29 @@ def office(parent, rect, block, floors, color, glass, biz, roof, fh=3.6, z0=0.1)
     F.box(m, "Awning", -1.8, -1.3, 1.8, 0.0, 2.95, 3.1, accent, "Fabric")
     F.box(m, "Fascia light", -F.W / 2 + 0.4, -0.34, F.W / 2 - 0.4, -0.3, 3.55, 3.6, accent, "Neon", collide=False)
     theme(F.sub(-F.W / 2 + t, t, F.W / 2 - t, F.D - t), m, name, accent, gh - 0.35)
-    # first floor: offices behind glass on the three outside walls
-    F1 = Room(*fr, f, zo)
-    for side in SIDES:
-        L, c_ = (F1.W, 0.0) if side in ("front", "back") else (F1.D - 2 * t, F1.D / 2)
-        owall(F1, m, side, 0.0, fh - 0.35, t, color, "Concrete",
-              [] if side == "back" and back else [(c_, L - 0.8, 0.8, fh - 0.75, "window")])
-    t_office(F1.sub(-F1.W / 2 + t, t, F1.W / 2 - t, F1.D - t), m, name, accent, fh - 0.35)
-    # the solid floors above, round the lift shaft, and their windows
-    for r in ring(*fr, hole):
-        aabb(m, "Walls", r[0], r[1], zo + fh - 0.36, r[2], r[3], zr - 0.4, color, "Concrete")
-    for k in range(1, n_up):
-        bands(m, *fr, zo + fh * k + 1.0, zo + fh * k + 2.8, glass, skip=(toward(-np.array(f)),) if back else ())
-    # the roof: the business's rooftop in front, solar panels behind
+    # every floor above: a different firm behind windows on all four sides
+    for k, ((tname, tfn), tacc) in enumerate(tenants):
+        zf = zo + fh * k
+        Fk = Room(*rect, f, zf)
+        fl = new(m, "Folder", "Floor %d" % (k + 1))
+        for side in SIDES:
+            L, c_ = (Fk.W, 0.0) if side in ("front", "back") else (Fk.D - 2 * t, Fk.D / 2)
+            owall(Fk, fl, side, 0.0, fh - 0.35, t, color, "Concrete", [(c_, L - 0.8, 0.8, fh - 0.75, "window")])
+        inner = Fk.sub(-Fk.W / 2 + t, t, Fk.W / 2 - t, Fk.D - t)
+        if tfn not in (t_yoga, t_servers):
+            u0_, u1_, v0_, v1_ = hole_extent(inner, hole)
+            for r in ring(*rect, hole):
+                aabb(fl, "Carpet", r[0], r[1], zf, r[2], r[3], zf + 0.02, rnd.choice([(96, 100, 110), (70, 76, 90),
+                                                                                       (110, 96, 86)]), "Fabric",
+                     collide=False)
+        tfn(inner, fl, tname, tacc, fh - 0.35)
+        if rnd.random() < 0.5:
+            coin(*inner.p(0.0, inner.D * 0.35), zf + 1.0)
+    # the roof: the business's rooftop
     Rr = Room(x0, y0, x1, y1, f, zr)
     aabb(m, "Parapet", x0 - 0.1, y0 - 0.1, zr - 0.4, x1 + 0.1, y1 + 0.1, zr - 0.25, (160, 160, 158), "Concrete")
-    if back:
-        aabb(m, "Roof", br[0], br[1], zr - 0.4, br[2], br[3], zr, (180, 180, 176), "Concrete")
-        Rb = Room(*br, f, zr)
-        for v in np.arange(1.2, Rb.D - 1.0, 2.4):
-            Rb.obj(m, "Solar panel", 0.0, v, 0.3, Rb.W - 2.0, 1.6, 0.08, (0, 1), (24, 38, 70), "Glass", refl=0.15)
     balustrade(Rr, m)
-    Fr = Room(*fr, f, zr)
-    roof_fn(Fr.sub(-Fr.W / 2 + 0.3, 0.3, Fr.W / 2 - 0.3, Fr.D - 0.3), m, accent)
+    roof_fn(Rr.sub(-Rr.W / 2 + 0.3, 0.3, Rr.W / 2 - 0.3, Rr.D - 0.3), m, accent)
     return m, zr
 
 
@@ -2588,52 +3420,90 @@ def apartments(parent, rect, block, floors, color, glass, name, accent, fh=3.2, 
     zg = z0 + 0.05
     zr = zg + gh + fh * max(3, floors - 1)
     zp = zr - 3.8
-    R = Room(x0, y0, x1, y1, f, zg)
-    F, fr, back, br = split_front(R, 14.0)
+    F = Room(x0, y0, x1, y1, f, zg)
     cd = 1.8
     q = F.p(0.0, F.D - t - (cd / 2 + 0.4))
-    stops = [(zg, "G", "Lobby"), (zp, "PH", "Penthouse"), (zr, "R", "Roof garden")]
+    span = zp - (zg + gh)
+    n_mid = max(1, int(span // 3.0))
+    fm = span / n_mid
+    mids = [zg + gh + fm * k for k in range(n_mid)]
+    stops = [(zg, "G", "Lobby")] + [(z, str(k + 1), "Flats %dA and %dB" % (k + 1, k + 1)) for k, z in enumerate(mids)] + \
+            [(zp, "PH", "Penthouse"), (zr, "R", "Roof garden")]
     hole = elevator(m, name, q[0], q[1], f, stops, cw=2.0, cd=cd, door=1.1, style="gold", vmax=11.0)
-    BUILDINGS.append((name, fr, [(s[0], s[2]) for s in stops]))
-    for z_, th, col, mat in ((zg, 0.3, (226, 222, 214), "Marble"), (zp, 0.35, (150, 104, 66), "WoodPlanks"),
-                             (zr, 0.4, (180, 180, 176), "Concrete")):
-        for r in ring(*fr, hole):
+    BUILDINGS.append((name, rect, [(s_[0], s_[2]) for s_ in stops], [s_[1] for s_ in stops]))
+    slabs = [(zg, 0.3, (226, 222, 214), "Marble")] + [(z, 0.3, (170, 124, 84), "WoodPlanks") for z in mids] + \
+            [(zp, 0.35, (150, 104, 66), "WoodPlanks"), (zr, 0.4, (180, 180, 176), "Concrete")]
+    for z_, th, col, mat in slabs:
+        for r in ring(*rect, hole):
             aabb(m, "Floor", r[0], r[1], z_ - th, r[2], r[3], z_, col, mat)
-    levels = [(zg + 1.0, zg + 3.2)]
-    z = zg + gh
-    while z + fh <= zr - 0.3:
-        levels.append((z + 0.9, z + 2.5))
-        z += fh
-    solid_back(m, back, br, f, z0 - 0.2, zr - 0.4, color, (70, 96, 110), levels)
     storefront(m, F, t, gh - 0.35, door=2.0, color=color)
     F.box(m, "Canopy", -2.4, -1.6, 2.4, 0.0, 3.0, 3.2, (240, 240, 236))
     sign(F.box(m, "Name", -2.2, -1.62, 2.2, -1.6, 3.0, 3.2, (28, 30, 34), collide=False), name, face=face_name(f))
     t_lobby(F.sub(-F.W / 2 + t, t, F.W / 2 - t, F.D - t), m, name, accent, gh - 0.35, mailboxes=True)
-    for r in ring(*fr, hole):
-        aabb(m, "Walls", r[0], r[1], zg + gh - 0.36, r[2], r[3], zp - 0.35, color, "Concrete")
-    for za, zb in levels[1:]:
-        if zb < zp - 0.4:
-            bands(m, *fr, za, zb, (70, 96, 110), lit=0.7, skip=(toward(-np.array(f)),) if back else ())
-    Fp = Room(*fr, f, zp)
+    # the flats, two to a floor either side of a corridor from the lift
+    for k, z in enumerate(mids):
+        Fk = Room(*rect, f, z)
+        fl = new(m, "Folder", "Floor %d" % (k + 1))
+        for side in SIDES:
+            L, c_ = (Fk.W, 0.0) if side in ("front", "back") else (Fk.D - 2 * t, Fk.D / 2)
+            owall(Fk, fl, side, 0.0, fm - 0.3, t, color, "Concrete", [(c_, L - 1.0, 0.8, fm - 0.8, "window")])
+        inner = Fk.sub(-Fk.W / 2 + t, t, Fk.W / 2 - t, Fk.D - t)
+        u0_, u1_, v0_, v1_ = hole_extent(inner, hole)
+        flats_floor(inner, fl, name, k + 1, accent, max(abs(u0_), abs(u1_)) + 0.05, fm - 0.3, v0_ - 0.05)
+    Fp = Room(*rect, f, zp)
     for side in SIDES:
         L, c_ = (Fp.W, 0.0) if side in ("front", "back") else (Fp.D - 2 * t, Fp.D / 2)
-        owall(Fp, m, side, 0.0, zr - 0.4 - zp, t, color, "Concrete",
-              [] if side == "back" and back else [(c_, L - 1.2, 0.5, 2.9, "window")])
+        owall(Fp, m, side, 0.0, zr - 0.4 - zp, t, color, "Concrete", [(c_, L - 1.2, 0.5, 2.9, "window")])
     t_penthouse(Fp.sub(-Fp.W / 2 + t, t, Fp.W / 2 - t, Fp.D - t), m, name, accent, zr - 0.4 - zp)
     Rr = Room(x0, y0, x1, y1, f, zr)
-    if back:
-        aabb(m, "Roof", br[0], br[1], zr - 0.4, br[2], br[3], zr, (180, 180, 176), "Concrete")
     for r in ring(x0 + 1, y0 + 1, x1 - 1, y1 - 1, hole):
         aabb(m, "Roof lawn", r[0], r[1], zr, r[2], r[3], zr + 0.08, GRASS, "Grass")
     balustrade(Rr, m)
-    Fr = Room(*fr, f, zr)
-    r_home(Fr.sub(-Fr.W / 2 + 0.5, 0.5, Fr.W / 2 - 0.5, Fr.D - 0.5, z=zr + 0.08), m, accent)
+    r_home(Rr.sub(-Rr.W / 2 + 0.5, 0.5, Rr.W / 2 - 0.5, Rr.D - 0.5, z=zr + 0.08), m, accent)
     return m, zr
 
 
 TOWER_NAMES = ["Aurora", "Meridian", "Zenith", "Halcyon", "Solstice", "Orion", "Vertex", "Lumen", "Cobalt", "Nimbus",
                "Helix", "Prism", "Atlas", "Summit", "Ember", "Lyra", "Polaris"]
 CLEAR_GLAZING = dict(color=(186, 214, 226), mat="Glass", tr=0.4, refl=0.08, shadow=False)
+
+
+def skin(par, x0, y0, x1, y1, za, zb, color, out=0.25, inn=0.02):
+    """A band round the outside of a rectangle only (it stays out of the rooms inside)."""
+    for r in ((x0 - out, y0 - out, x1 + out, y0 + inn), (x0 - out, y1 - inn, x1 + out, y1 + out),
+              (x0 - out, y0 + inn, x0 + inn, y1 - inn), (x1 - inn, y0 + inn, x1 + out, y1 - inn)):
+        aabb(par, "Spandrel", r[0], r[1], za, r[2], r[3], zb, color, "Metal")
+
+
+def tower_floor(m, tx0, ty0, tx1, ty1, hole, front, zf, frame, spec, tower_name, accent):
+    """A floor inside a tower tier, glass all round: one theme in front of the lift, one behind it."""
+    title, ffn, bfn = spec
+    fl = new(m, "Folder", "Floor at %d m" % round(zf))
+    L = Room(tx0, ty0, tx1, ty1, front, zf)
+    hh = 3.6
+    for r in ring(tx0, ty0, tx1, ty1, hole):
+        aabb(fl, "Floor", r[0], r[1], zf - 0.4, r[2], r[3], zf, (206, 202, 196), "Marble")
+        aabb(fl, "Ceiling", r[0], r[1], zf + hh, r[2], r[3], zf + 4.0, SOFFIT)
+    for side in SIDES:
+        span = L.W if side in ("front", "back") else L.D - 0.5
+        c_ = 0.0 if side in ("front", "back") else L.D / 2
+        owall(L, fl, side, 0.0, hh, 0.25, frame, "Metal", [(c_, span - 0.5, 0.2, hh - 0.2, "window")], glass=CLEAR_GLAZING)
+        s0, s1 = (-L.W / 2, L.W / 2) if side in ("front", "back") else (0.25, L.D - 0.25)
+        for s_ in np.arange(s0 + 3.5, s1 - 1.0, 3.5):
+            side_box(L, fl, "Mullion", side, s_ - 0.05, s_ + 0.05, 0.0, hh, 0.3, frame, "Metal")
+    cu0, cu1, cv0, cv1 = hole_extent(L, hole)
+    label = title.upper() + "  ·  " + tower_name.upper()
+    if cv0 - 0.25 > 3.0:
+        ffn(L.sub(-L.W / 2 + 0.25, 0.25, L.W / 2 - 0.25, cv0 - 0.15), fl, label, accent, hh - 0.05)
+    if L.D - 0.25 - cv1 > 3.0:
+        bfn(L.sub(-L.W / 2 + 0.25, cv1 + 0.15, L.W / 2 - 0.25, L.D - 0.25, front=tuple(-np.array(front, float))), fl, label,
+            accent, hh - 0.05)
+    for uu, face in ((cu0 - 1.6, (-1, 0)), (cu1 + 1.6, (1, 0))):     # beside the core: a seat at the glass
+        if abs(uu) < L.W / 2 - 1.6:
+            wu = (L.W / 2 - 1.0) * (1 if face[0] > 0 else -1)
+            armchair(L, fl, wu, (cv0 + cv1) / 2, (face[0], 0), rnd.choice([accent, (220, 214, 204), (60, 60, 66)]))
+            plant(L, fl, wu, (cv0 + cv1) / 2 + 1.2, 1.5)
+    coin(*L.p(0.0, max(0.8, cv0 - 1.2)), zf + 1.0)
 
 
 def tower(parent, cx, cy, w, d, h, glass, frame, front, name, accent, lobby=0, lounge=0, z0=0.1, crown=(120, 230, 255),
@@ -2653,18 +3523,32 @@ def tower(parent, cx, cy, w, d, h, glass, frame, front, name, accent, lobby=0, l
         names[i] = (title, fn)
         floor_no = int(round((zl[i] - z0) / 4.0))
         stops.append((zl[i], str(floor_no), title))
+    # floors you can visit inside the tiers, on the tower's 4 m grid, clear of each tier's ends and the lounges
+    cand, zb_ = [], z0 + pod
+    for i, (scale, frac) in enumerate(tiers):
+        hi = (zl[i] - 0.4 if i in zl else tops[i]) - 4.6
+        z = zb_ + 4.0
+        while z <= hi:
+            cand.append((i, z))
+            z += 4.0
+        zb_ = tops[i] + 0.8
+    n_open = min(len(cand), 2 if h < 80 else 3 if h < 140 else 4 if h < 200 else 7)
+    open_floors = [cand[int((k + 0.5) * len(cand) / n_open)] + (next_tower_floor(),) for k in range(n_open)]
+    for i, z, spec in open_floors:
+        stops.append((z, str(int(round((z - z0) / 4.0))), spec[0]))
+    stops.sort(key=lambda s_: s_[0])
     px0, py0, px1, py1 = cx - w / 2 - 4, cy - d / 2 - 4, cx + w / 2 + 4, cy + d / 2 + 4
     hole = elevator(m, name, cx, cy, front, stops, cw=2.6, cd=2.2, door=1.3, style=car, vmax=13.0,
                     top=tops[max(rooms)] - 0.05, shaft_lights=True, shaft_color=(60, 64, 70))
-    BUILDINGS.append((name, (px0, py0, px1, py1), [(s[0], s[2]) for s in stops]))
+    BUILDINGS.append((name, (px0, py0, px1, py1), [(s_[0], s_[2]) for s_ in stops], [s_[1] for s_ in stops]))
 
     # the podium: a double-height lobby behind glass
     P = Room(px0, py0, px1, py1, front, zg)
     for r in ring(px0, py0, px1, py1, hole):
         aabb(m, "Floor", r[0], r[1], zg - 0.3, r[2], r[3], zg, (226, 222, 214), "Marble")
         aabb(m, "Podium roof", r[0], r[1], z0 + pod - 0.4, r[2], r[3], z0 + pod, rnd.choice(CONC), "Concrete")
-    opens = {s: [((0.0 if s in ("front", "back") else P.D / 2), (P.W if s in ("front", "back") else P.D) - 1.4,
-                  0.35, 4.6, "window")] for s in SIDES}
+    opens = {s_: [((0.0 if s_ in ("front", "back") else P.D / 2), (P.W if s_ in ("front", "back") else P.D) - 1.4,
+                   0.35, 4.6, "window")] for s_ in SIDES}
     opens["front"] = [(0.0, 2.6, 0.0, 2.75, "door"), (-(P.W / 4 + 0.65), P.W / 2 - 2.0, 0.35, 4.6, "window"),
                       (P.W / 4 + 0.65, P.W / 2 - 2.0, 0.35, 4.6, "window")]
     for side in SIDES:
@@ -2675,20 +3559,33 @@ def tower(parent, cx, cy, w, d, h, glass, frame, front, name, accent, lobby=0, l
     P.box(m, "Canopy", -2.8, -2.2, 2.8, 0.0, 3.1, 3.3, frame, "Metal")
     t_grand_lobby(P.sub(-P.W / 2 + t, t, P.W / 2 - t, P.D - t), m, name.upper(), accent, pod - 0.55, lobby)
 
-    # the tiers, hollow round the shaft
+    # the tiers: glass, hollow round the shaft, with the open floors let into them
     zb = z0 + pod
     for i, (scale, frac) in enumerate(tiers):
         tw, td, zt = w * scale, d * scale, tops[i]
         tx0, ty0, tx1, ty1 = cx - tw / 2, cy - td / 2, cx + tw / 2, cy + td / 2
         solid_top = zl[i] - 0.4 if i in zl else zt
         nm = "Lit window" if rnd.random() < 0.7 else "Window"
-        for r in ring(tx0, ty0, tx1, ty1, hole):
-            aabb(m, nm, r[0], r[1], zb, r[2], r[3], solid_top, glass, "Glass", refl=0.22)
+        here = sorted(z for j, z, _ in open_floors if j == i)
+        a_ = zb
+        for zf in here + [None]:
+            b_ = solid_top if zf is None else zf - 0.4
+            if b_ - a_ > 0.05:
+                for r in ring(tx0, ty0, tx1, ty1, hole):
+                    aabb(m, nm, r[0], r[1], a_, r[2], r[3], b_, glass, "Glass", refl=0.22)
+            if zf is not None:
+                a_ = zf + 4.0
         z = zb + 4.0
         while z < solid_top - 1.5:
-            for r in ((tx0 - 0.25, ty0 - 0.25, hole[0], ty1 + 0.25), (hole[2], ty0 - 0.25, tx1 + 0.25, ty1 + 0.25)):
-                aabb(m, "Spandrel", r[0], r[1], z - 0.45, r[2], r[3], z + 0.45, frame, "Metal")
+            if any(zf - 0.6 < z < zf + 4.6 for zf in here):
+                skin(m, tx0, ty0, tx1, ty1, z - 0.45, z + 0.45, frame)
+            else:
+                for r in ((tx0 - 0.25, ty0 - 0.25, hole[0], ty1 + 0.25), (hole[2], ty0 - 0.25, tx1 + 0.25, ty1 + 0.25)):
+                    aabb(m, "Spandrel", r[0], r[1], z - 0.45, r[2], r[3], z + 0.45, frame, "Metal")
             z += 4.0
+        for j, zf, spec in open_floors:
+            if j == i:
+                tower_floor(m, tx0, ty0, tx1, ty1, hole, front, zf, frame, spec, name, accent)
         if i in zl:
             L = Room(tx0, ty0, tx1, ty1, front, zl[i])
             for r in ring(tx0, ty0, tx1, ty1, hole):
@@ -2721,6 +3618,7 @@ def tower(parent, cx, cy, w, d, h, glass, frame, front, name, accent, lobby=0, l
                 L.box(m, "Skywalk glass", -1.5, -3.2, 1.5, -3.12, 0.0, 2.8, **CLEAR_GLAZING)
                 L.box(m, "Skywalk roof", -1.6, -3.3, 1.6, 0.0, 2.8, 2.95, (200, 230, 240), "Glass", tr=0.5)
                 BUILDINGS[-1][2].append((zl[i] + 0.01, "Skywalk"))
+                BUILDINGS[-1][3].append("Sky")
         last = i == len(tiers) - 1
         for r in ([(tx0 - 0.3, ty0 - 0.3, tx1 + 0.3, ty1 + 0.3)] if last else
                   ring(tx0 - 0.3, ty0 - 0.3, tx1 + 0.3, ty1 + 0.3, hole)):
@@ -2736,6 +3634,7 @@ def tower(parent, cx, cy, w, d, h, glass, frame, front, name, accent, lobby=0, l
     return m, stops
 
 
+HOUSES = []                     # (number, rect) for the passport and the map
 HOUSE_WALL = [(236, 228, 214), (214, 196, 170), (190, 210, 220), (226, 212, 190), (204, 220, 198), (240, 236, 228),
               (222, 190, 170)]
 HOUSE_ROOF = [(150, 70, 52), (90, 92, 98), (60, 66, 74), (170, 96, 64), (120, 64, 50)]
@@ -2754,6 +3653,7 @@ def house(parent, x, y, f, setback, z0=0.0, number=1):
     p0, p1 = c - a * w / 2 - f * d / 2, c + a * w / 2 + f * d / 2
     rect = (min(p0[0], p1[0]), min(p0[1], p1[1]), max(p0[0], p1[0]), max(p0[1], p1[1]))
     m = new(parent, "Model", "House")
+    HOUSES.append((number, rect))
     R = Room(*rect, f, z0 + 0.15)
     t, wc = 0.2, rnd.choice(HOUSE_WALL)
     W, D = R.W, R.D
@@ -2806,6 +3706,16 @@ def house(parent, x, y, f, setback, z0=0.0, number=1):
     R.box(m, "Sink", W / 2 - t - 0.55, vp + 1.6, W / 2 - t - 0.1, vp + 2.1, 0.95, 0.96, (180, 184, 188), "Metal",
           collide=False)
     fridge(R, m, usep + 0.45, D - t - 0.45, (1, 0))
+    # bathroom: the back corner by the kitchen wall, its door off the bedroom side
+    ba, bb, bv = usep - 2.0, usep - 0.05, D - t - 2.0
+    partition(R, m, ba, bv - 0.05, bb, bv + 0.05, 3.0, (230, 236, 240), door=(bb - 0.55, 0.75))
+    partition(R, m, ba - 0.05, bv, ba + 0.05, D - t, 3.0, (230, 236, 240))
+    R.box(m, "Bathroom tiles", ba, bv, bb, D - t, 0, 0.02, (220, 228, 232), "Marble", collide=False)
+    shower(R, m, ba + 0.1, D - t - 0.95, ba + 1.0, D - t - 0.05, "front")
+    toilet(R, m, bb - 0.35, D - t - 0.35, (0, -1))
+    basin(R, m, ba + 0.3, bv + 0.55, (1, 0), 0.7)
+    if rnd.random() < 0.3:
+        staff(R, -W / 2 + t + 2.6, lv + 0.6, (-1, 0), "Resident", rnd.choice(["idle", "wave"]))
     lamp_panel(R, m, (usep + W / 2) / 2, (vp + D) / 2, 3.15 if storeys == 2 else H - 0.02, rng=12, brightness=0.6)
     if storeys == 1:
         bu = (-W / 2 + usep) / 2 + 0.3
@@ -2827,7 +3737,7 @@ def house(parent, x, y, f, setback, z0=0.0, number=1):
         R.box(m, "Landing rail", sx1 + 0.05, v_a - 0.05, sx1 + 0.1, D - t - 1.2, 3.2, 4.2, (150, 104, 66), "Wood")
         U = R.sub(-W / 2 + t, t, W / 2 - t, D - t, z=R.z + 3.2)
         bed(U, m, U.W / 2 - 1.15, U.D * 0.6, (-1, 0), w=1.6, L=2.1, color=rnd.choice(ART))
-        shelf(R, m, (sx1 + usep) / 2, D - t - 0.25, (0, -1), w=1.6, h=1.9)
+        shelf(R, m, (sx1 + usep - 2.0) / 2, D - t - 0.25, (0, -1), w=1.4, h=1.9)
         R.obj(m, "Wardrobe", W / 2 - t - 0.35, 1.5, 3.2, 1.6, 0.6, 2.1, (-1, 0), (236, 232, 224), "Wood")
         desk(U, m, -U.W / 4, 0.75, (0, -1), 1.2, screen=rnd.choice(ART))
         rug(U, m, 0.0, U.D * 0.4, 2.6, 2.0, rnd.choice(ART))
@@ -2840,7 +3750,8 @@ def house(parent, x, y, f, setback, z0=0.0, number=1):
         ramp(m, "Roof", q[0], q[1], z0 + 0.15 + H, d / 2 + 0.5, w + 0.8, 2.2, yaw + (math.pi if sgn > 0 else 0), rc, "Slate")
     if rnd.random() < 0.4:
         q = c - f * (d / 4) + a * (w / 2 - 1.5)
-        ybox(m, "Chimney", q[0], q[1], z0 + H, 0.8, 0.8, 2.8, yaw + math.pi / 2, (150, 96, 80), "Concrete")
+        values(ybox(m, "Chimney", q[0], q[1], z0 + H, 0.8, 0.8, 2.8, yaw + math.pi / 2, (150, 96, 80), "Concrete"),
+               FX="chimney")
     drive = c + f * (d / 2 + setback / 2) + a * (w / 2 - 1.7)
     ybox(m, "Driveway", drive[0], drive[1], z0 - 0.14, 3.2, setback, 0.2, yaw + math.pi / 2, (184, 180, 172), "Concrete")
     garden(m, R, rnd.choice(GARDENS))
@@ -2867,7 +3778,7 @@ def garden(m, R, kind):
     elif kind == "bbq":
         dining(g, m, 0.0, 4.5, 1.8, 0.8, 4, color=(150, 104, 66), chairs=(150, 104, 66))
         g.box(m, "Barbecue", 2.2, 1.2, 3.2, 1.8, 0, 0.9, (40, 40, 44), "Metal")
-        g.box(m, "Grill", 2.3, 1.25, 3.1, 1.75, 0.9, 0.93, (255, 110, 40), "Neon", collide=False)
+        values(g.box(m, "Grill", 2.3, 1.25, 3.1, 1.75, 0.9, 0.93, (255, 110, 40), "Neon", collide=False), FX="smoke")
     elif kind == "swings":
         for e in (-1, 1):
             g.box(m, "Swing frame", e * 1.6 - 0.08, 3.4, e * 1.6 + 0.08, 3.56, 0, 2.4, (200, 60, 60), "Metal")
@@ -2897,6 +3808,8 @@ def garden(m, R, kind):
 
 GARDENS = ["pool", "trampoline", "bbq", "swings", "hottub", "veg", "shed"]
 
+
+build_mall_shops()
 
 # ---- suburbs: two blocks of houses down the west side
 suburbs = new(city, "Folder", "Suburbs")
@@ -2972,15 +3885,20 @@ for key in ("C5R1", "C5R2", "C5R3", "C6R1", "C6R2", "C6R3"):
         n_tower += 1
 plaza = new(downtown, "Model", "Plaza")
 aabb(plaza, "Plaza", *PLAZA[:2], 0.0, *PLAZA[2:], 0.13, (190, 186, 180), "Granite")
-fx, fy = 208.0, 46.0
-vcyl(plaza, "Fountain basin", fx, fy, 0.13, 0.7, 16, (200, 196, 190), "Granite")
-vcyl(plaza, "Fountain water", fx, fy, 0.13, 0.62, 15, (70, 170, 210), "Glass", tr=0.25, refl=0.3, collide=False)
-vcyl(plaza, "Fountain column", fx, fy, 0.13, 3.0, 2.4, (200, 196, 190), "Granite")
-vcyl(plaza, "Fountain bowl", fx, fy, 2.7, 0.4, 6.5, (200, 196, 190), "Granite")
-vcyl(plaza, "Fountain jet", fx, fy, 3.1, 3.2, 0.7, (170, 225, 255), "Glass", tr=0.35, collide=False)
+fox, foy = 208.0, 46.0
+vcyl(plaza, "Fountain basin", fox, foy, 0.13, 0.7, 16, (200, 196, 190), "Granite")
+vcyl(plaza, "Fountain water", fox, foy, 0.13, 0.62, 15, (70, 170, 210), "Glass", tr=0.25, refl=0.3, collide=False)
+vcyl(plaza, "Fountain column", fox, foy, 0.13, 3.0, 2.4, (200, 196, 190), "Granite")
+vcyl(plaza, "Fountain bowl", fox, foy, 2.7, 0.4, 6.5, (200, 196, 190), "Granite")
+jet = vcyl(plaza, "Fountain jet", fox, foy, 3.1, 3.2, 0.7, (170, 225, 255), "Glass", tr=0.35, collide=False)
+values(jet, FX="fountain", Ambience="fountain")
+for k in range(4):
+    ang = k * math.pi / 2 + 0.4
+    staff_xy(fox + 13.5 * math.cos(ang), foy + 13.5 * math.sin(ang), 0.13, (-math.cos(ang), -math.sin(ang)), "Visitor",
+             ("idle", "wave", "idle", "cheer")[k])
 for k in range(8):
     ang = k * math.pi / 4
-    q = np.array([fx, fy]) + 11.5 * np.array([math.cos(ang), math.sin(ang)])
+    q = np.array([fox, foy]) + 11.5 * np.array([math.cos(ang), math.sin(ang)])
     seat(plaza, q[0], q[1], 0.13, ang + math.pi / 2, color=(120, 90, 64), back=True, w=1.6)
 for q in ((186.0, 24.0), (230.0, 24.0), (230.0, 68.0)):
     vcyl(plaza, "Planter", q[0], q[1], 0.13, 0.6, 3.4, (160, 156, 150), "Concrete")
@@ -2988,7 +3906,7 @@ for q in ((186.0, 24.0), (230.0, 24.0), (230.0, 68.0)):
 led = wall(plaza, "Plaza screen", np.array([188.0, 73.0]), np.array([228.0, 73.0]), 0.13, 9.0, 0.6, (18, 26, 60), "Neon")
 sign(led, "GLASS CITY", style="led", accent=(60, 200, 255))
 for ang in (0.4, 1.9, 3.5, 5.0):
-    coin(fx + 9 * math.cos(ang), fy + 9 * math.sin(ang), 1.2)
+    coin(fox + 9 * math.cos(ang), foy + 9 * math.sin(ang), 1.2)
 
 # ---- uptown: bright apartment blocks along the north edge
 uptown = new(city, "Folder", "Uptown")
@@ -3062,6 +3980,16 @@ vcyl(park, "Gazebo roof", *gz, 3.6, 0.5, 6, (110, 60, 50), "Slate")
 ball(park, "Gazebo finial", gz[0], gz[1], 4.3, 0.6, (230, 200, 120), "Metal")
 pg = (136.0, -4.0)
 aabb(park, "Sandpit", pg[0] - 7, pg[1] - 6, -0.1, pg[0] + 7, pg[1] + 6, 0.05, (230, 210, 160), "Sand")
+values(aabb(park, "Playground noise", pg[0] - 0.2, pg[1] - 0.2, 1.5, pg[0] + 0.2, pg[1] + 0.2, 1.9, WHITE, tr=1,
+            collide=False, query=False, shadow=False), Ambience="playground")
+values(aabb(park, "Fireflies", PX0 + 8, PY0 + 8, PX1 - 8, PY1 - 8, 0.4, 3.0, WHITE, tr=1, collide=False, query=False,
+            shadow=False), FX="fireflies")
+cart = new(park, "Model", "Ice cream cart")
+aabb(cart, "Cart", 126.0, -14.5, 0.3, 128.4, -13.3, 1.3, (250, 250, 246), "SmoothPlastic")
+values(aabb(cart, "Cart top", 125.9, -14.6, 1.3, 128.5, -13.2, 1.36, (250, 160, 190), "SmoothPlastic"), Vendor="Ice cream")
+vcyl(cart, "Parasol pole", 127.2, -13.9, 1.36, 1.6, 0.06, (230, 230, 226), "Metal")
+vcyl(cart, "Parasol", 127.2, -13.9, 2.9, 0.15, 2.6, (250, 160, 190), "Fabric", collide=False)
+staff_xy(127.2, -12.6, 0.06, (0, -1), "Ice cream seller", "wave")
 aabb(park, "Slide tower", pg[0] - 5, pg[1] - 1, 0.05, pg[0] - 3, pg[1] + 1, 2.2, (240, 196, 40), "SmoothPlastic")
 ramp(park, "Slide", pg[0] - 0.5, pg[1], 0.05, 5.0, 0.9, 2.15, math.pi, (60, 160, 220), "SmoothPlastic")
 for x in (pg[0] + 3.0, pg[0] + 6.0):
@@ -3225,6 +4153,10 @@ for q in ((174.0, 98.0), (315.0, 98.0), (174.0, 220.0), (315.0, 160.0)):
 for x0 in (180.0, 222.0):                     # bleachers along the north edge
     for k in range(3):
         aabb(stunt, "Bleacher", x0, 218.0 + k * 1.2, 0.1, x0 + 34, 223.0, 0.6 + k * 0.5, (150, 156, 162), "Metal")
+for x0 in (180.0, 222.0):
+    for k in range(3):
+        for j in range(3):
+            staff_xy(x0 + 6 + 10 * j + k * 1.5, 218.6 + 1.2 * k, 0.6 + 0.5 * k, (0, -1), "Fan", ("cheer", "wave", "idle")[(j + k) % 3])
 portal("Stunt park floor", 282.0, 188.0, 0.1, "Mega ramp top", "Up to the mega ramp")
 portal("Mega ramp top", 298.0, 206.0, 16.0, "Stunt park floor", "Down to the floor")
 gas = new(stunt, "Model", "Fuel station")
@@ -3238,10 +4170,17 @@ for y in (104.5, 109.5):
     for x in (189.0, 197.0):
         aabb(gas, "Pump", x - 0.5, y - 0.3, 0.3, x + 0.5, y + 0.3, 2.0, (230, 230, 226), "SmoothPlastic")
         aabb(gas, "Pump stripe", x - 0.52, y - 0.32, 1.5, x + 0.52, y + 0.32, 1.7, (60, 220, 255), "Neon", collide=False)
-mart = aabb(gas, "Fuel mart", 176.0, 117.0, 0.1, 200.0, 125.5, 4.2, (236, 232, 224), "Concrete")
-aabb(gas, "Mart glass", 178.0, 116.94, 0.4, 198.0, 117.0, 3.2, (60, 90, 110), "Glass", refl=0.2)
-mart_sign = aabb(gas, "Mart sign", 182.0, 116.7, 3.3, 194.0, 116.9, 4.0, (200, 40, 40))
+Rm = Room(176.0, 117.0, 200.0, 125.5, (0.0, -1.0), 0.15)
+aabb(gas, "Mart floor", 176.0, 117.0, -0.1, 200.0, 125.5, 0.15, (226, 222, 214), "Marble")
+storefront(gas, Rm, 0.25, 3.9, door=2.2, color=(236, 232, 224))
+aabb(gas, "Mart roof", 175.8, 116.8, 4.05, 200.2, 125.7, 4.4, (236, 232, 224), "Concrete")
+mart_sign = aabb(gas, "Mart sign", 182.0, 116.6, 3.3, 194.0, 116.8, 4.0, (200, 40, 40))
 sign(mart_sign, "MART  ·  24/7", face="Back")
+Mi = Rm.sub(-Rm.W / 2 + 0.25, 0.25, Rm.W / 2 - 0.25, Rm.D - 0.25)
+t_market(Mi, gas, "GLASSTOP MART", (60, 220, 255), 3.8)
+vendor(Mi.obj(gas, "Slushie machine", -Mi.W / 2 + 0.5, 0.9, 0.95, 0.7, 0.5, 0.6, (1, 0), (60, 200, 255), "Glass", tr=0.3),
+       "Slushie")
+staff(Mi, 3.4, 1.6, (0, -1), "Cashier")
 aabb(gas, "Price sign post", 209.6, 97.6, 0.1, 210.4, 98.4, 5.0, (70, 74, 78), "Metal")
 price = aabb(gas, "Price sign", 208.0, 97.8, 5.0, 212.0, 98.2, 7.4, (18, 26, 60), "Neon")
 sign(price, "FUEL", face="Back", style="led", accent=(255, 70, 40))
@@ -3287,6 +4226,11 @@ for dx_ in (-1.0, 1.0):
 aabb(beach, "Lifeguard deck", lg[0] - 1.4, lg[1] - 1.4, 3.0, lg[0] + 1.4, lg[1] + 1.4, 3.15, WHITE, "WoodPlanks")
 aabb(beach, "Lifeguard hut", lg[0] - 1.0, lg[1] - 1.0, 3.15, lg[0] + 1.0, lg[1] + 1.0, 5.0, (230, 60, 50), "Wood")
 ramp(beach, "Lifeguard ladder", lg[0] - 3.0, lg[1], -0.3, 3.2, 0.9, 3.3, 0.0, WHITE, "WoodPlanks")
+staff_xy(lg[0] + 1.05, lg[1], 3.15, (1, 0), "Lifeguard")
+lolly = new(beach, "Model", "Ice lolly cart")
+aabb(lolly, "Cart", 345.0, 10.0, 0.12, 347.2, 11.2, 1.2, (60, 150, 220), "SmoothPlastic")
+values(aabb(lolly, "Cart top", 344.9, 9.9, 1.2, 347.3, 11.3, 1.26, (250, 250, 246), "SmoothPlastic"), Vendor="Ice lolly")
+staff_xy(346.1, 11.9, 0.12, (0, -1), "Ice lolly seller")
 PIER_Z = 1.6
 ramp(beach, "Pier ramp", 353.0, 31.0, 0.12, 10.0, 6.0, PIER_Z - 0.12, 0.0, (150, 104, 66), "WoodPlanks")
 aabb(beach, "Pier", 358.0, 28.0, PIER_Z - 0.3, 440.0, 34.0, PIER_Z, (150, 104, 66), "WoodPlanks")
@@ -3296,6 +4240,11 @@ for x in np.arange(362.0, 441.0, 8.0):
 for y0 in (28.0, 33.88):
     aabb(beach, "Pier rail", 358.0, y0, PIER_Z + 0.9, 440.0, y0 + 0.12, PIER_Z + 1.0, WHITE, "Wood")
 aabb(beach, "Pavilion roof", 428.0, 27.0, PIER_Z + 3.2, 440.0, 35.0, PIER_Z + 3.5, (200, 70, 60), "Wood")
+stall = aabb(beach, "Coconut stall", 436.0, 29.0, PIER_Z, 439.0, 30.2, PIER_Z + 1.1, (150, 104, 66), "WoodPlanks")
+values(stall, Vendor="Coconut water", Ambience="marina")
+for k in range(4):
+    ball(beach, "Coconut", 436.4 + k * 0.7, 29.6, PIER_Z + 1.25, 0.35, (90, 140, 60), "Wood", collide=False)
+staff_xy(437.5, 28.5, PIER_Z, (0, 1), "Coconut seller")
 for x, y in ((428.5, 28.2), (439.5, 28.2), (428.5, 33.8), (439.5, 33.8)):
     aabb(beach, "Pavilion post", x - 0.12, y - 0.12, PIER_Z, x + 0.12, y + 0.12, PIER_Z + 3.2, WHITE, "Wood")
 bay_sign = wall(beach, "Bay sign", np.array([344.5, 36.0]), np.array([344.5, 26.0]), 0.12, 2.0, 0.4, (30, 40, 60))
@@ -3373,6 +4322,31 @@ sp_ = aabb(ws, "SpawnLocation", spawn_c[0] - 1.8, spawn_c[1] - 1.8, -0.05, spawn
            PAVE, "Slate", cls="SpawnLocation")
 sp_.props.update(Neutral=("bool", True), Duration=("int", 0), Enabled=("bool", True))
 
+# ---- landmarks for the passport: (name, where, rect, z low, z high)
+xs_m, ys_m = [p_[0] for p_ in POLY["F4"] + POLY["F3"]], [p_[1] for p_ in POLY["F3"]]
+mall_box = (min(xs_m), min(ys_m), max(xs_m), max(ys_m))
+LANDMARKS = [
+    ("Mega ramp top", "Stunt Park", (290.0, 196.0, 306.0, 216.0), 15.0, 30.0),
+    ("Lifeguard tower", "Glass Bay", (378.6, 13.6, 381.4, 16.4), 2.9, 8.0),
+    ("End of the pier", "Glass Bay", (420.0, 27.0, 441.0, 35.0), PIER_Z - 0.5, PIER_Z + 6),
+    ("Glasstop Mart", "Stunt Park", (176.0, 117.0, 200.0, 125.5), -0.5, 4.0),
+    ("Fuel station", "Stunt Park", (180.0, 100.0, 206.0, 114.0), -0.5, 6.0),
+    ("Fountain plaza", "Downtown", PLAZA, -0.5, 12.0),
+    ("Gazebo", "Central Park", (gz[0] - 4.5, gz[1] - 4.5, gz[0] + 4.5, gz[1] + 4.5), -0.5, 5.0),
+    ("Playground", "Central Park", (pg[0] - 7, pg[1] - 6, pg[0] + 7, pg[1] + 6), -0.5, 6.0),
+    ("Jetty", "Central Park", (116.0, loop_[1] + 3, 120.0, 32.0), -0.5, 4.0),
+    ("VAYU sky pool", "VAYU Hotel", (VX, VY, VX + 110.0, VY + 90.0), VSKY - 3.0, VSKY + 12.0),
+    ("Mall roof terrace", "Glass Mall", (min(p_[0] for p_ in tri), min(p_[1] for p_ in tri), max(p_[0] for p_ in tri),
+                                         max(p_[1] for p_ in tri)), z4 - 0.5, z4 + 6),
+    ("Mall car park", "Glass Mall", LOT, -0.5, 6.0),
+    ("Glass Bay beach", "Glass Bay", (RE + RH, RS - 300, RE + RH + 60, RN + 300), -3.0, 12.0),
+    ("Central Park", "Central Park", BLOCKS["C4R3"], -3.0, 12.0),
+    ("Stunt Park", "Stunt Park", BLOCKS["C56R4"], -0.5, 14.0),
+    ("VAYU Hotel", "VAYU Hotel", BLOCKS["C34R4"], -0.5, 40.0),
+    ("Ring Highway", "Glass City", RING[0], -1.0, 8.0), ("Ring Highway", "Glass City", RING[1], -1.0, 8.0),
+    ("Ring Highway", "Glass City", RING[2], -1.0, 8.0), ("Ring Highway", "Glass City", RING[3], -1.0, 8.0),
+]
+
 # ---- what the scripts are told about the city
 PLACES = [("Glass Mall", (29.4, 25.4, 0.1)), ("Mall car park", (-1.5, -71.3, 0.1)),        # beside car pads and portals
           ("VAYU Hotel lobby", (59.7, 135.0, 0.05)), ("VAYU sky pool", (82.2, 137.5, VSKY)),
@@ -3425,7 +4399,7 @@ TERRAIN = "{\n\twater = { %s },\n\tsand = { %s, %s },\n\twedges = { %s },\n\tlak
 
 # ------------------------------------------------------------------ lighting
 lighting = Inst("Lighting", "Lighting",
-                Ambient=("c3", (72, 72, 82)), OutdoorAmbient=("c3", (128, 128, 136)), Brightness=("float", 3),
+                Ambient=("c3", (128, 124, 118)), OutdoorAmbient=("c3", (128, 128, 136)), Brightness=("float", 3),
                 TimeOfDay=("string", "16:40:00"), GeographicLatitude=("float", 13),
                 EnvironmentDiffuseScale=("float", 1), EnvironmentSpecularScale=("float", 1),
                 GlobalShadows=("bool", True), ShadowSoftness=("float", 0.2), Technology=("token", 4),
@@ -3472,13 +4446,74 @@ fill = {
     "__PLACE_NAMES__": "{ %s }" % ", ".join('"%s"' % n for n, q in PLACES),
     "__BUILDINGS__": lua_list('{ name = "%s", rect = { %s }, floors = { %s } }' % (
         n, ", ".join(num(v) for v in srect(*r)), ", ".join('{ %s, "%s" }' % (num(z * K), t) for z, t in fl))
-        for n, r, fl in BUILDINGS),
+        for n, r, fl, _ in BUILDINGS),
     "__DISTRICTS__": lua_list('{ "%s", %s }' % (n, ", ".join(num(v) for v in srect(*r))) for n, r in DISTRICTS),
     "__BLVD__": "{ a = %s, dir = %s, out = %s, lo = %s, hi = %s, t0 = %s, t1 = %s }" % (
         lua_vec(BLVD_A), lua_vec(D3(dDir[0], dDir[1], 0)), lua_vec(D3(dOut[0], dOut[1], 0)), num(5.5 * K), num(25 * K),
         num(t0 * K), num(t1 * K)),
     "__TERRAIN__": TERRAIN,
 }
+
+
+def lua_str(t):
+    return '"%s"' % t.replace("\\", "\\\\").replace('"', '\\"')
+
+
+def disc_rows():
+    """Every place the passport stamps, most specific first: { name, where, x0, z0, x1, z1, y0, y1 } in studs."""
+    rows = []
+
+    def add(name, where, rect, z_lo, z_hi):
+        x0, z0_, x1, z1_ = srect(*rect)
+        rows.append("{ %s, %s, %s, %s, %s, %s, %s, %s }" % (lua_str(name), lua_str(where), num(x0), num(z0_), num(x1),
+                                                           num(z1_), num(z_lo * K), num(z_hi * K)))
+    for nm, level, rect in MALL_SHOPS:
+        add(nm, "Glass Mall · " + LEVELS[level][0], rect, floor_top(level) - 0.5, floor_top(level) + 2.5)
+    add("Cinema 1", "Glass Mall · 4F", HALL_A, z4 - 0.5, z4 + 5.5)
+    add("Cinema 2", "Glass Mall · 4F", HALL_B, z4 - 0.5, z4 + 5.5)
+    xs, ys = [p_[0] for p_ in POLY["F4"] + POLY["F3"]], [p_[1] for p_ in POLY["F3"]]
+    mall_rect = (min(xs), min(ys), max(xs), max(ys))
+    for i, (lid, z, h, key, note) in enumerate(LEVELS):
+        add(note.split(" and ")[0] if i else "Atrium", "Glass Mall · " + lid, mall_rect, floor_top(i) - 0.5,
+            floor_top(i) + h - 0.5)
+    for n, r, fl, labels in BUILDINGS:
+        for k, (zf, t_) in enumerate(fl):
+            top = fl[k + 1][0] if k + 1 < len(fl) else zf + 12
+            lab = labels[k] if k < len(labels) else ""
+            where = n if t_ != n else "Ground floor"
+            if lab and t_ != n:
+                where = n + " · " + ("Floor " + lab if lab.isdigit() else {"G": "Ground", "L": "Lobby", "R": "Roof",
+                                                                             "PH": "Penthouse"}.get(lab, lab))
+            add(t_ if t_ != n else n, where, r, zf - 0.6, max(zf + 2.0, top - 0.6))
+    for number, r in HOUSES:
+        add("No. %d, %s Street" % (number, STREETS_[number % len(STREETS_)]), "Suburbs", r, -1.0, 9.0)
+    for nm, where, r, a_, b_ in LANDMARKS:
+        add(nm, where, r, a_, b_)
+    return rows
+
+
+def map_data():
+    def rect(r):
+        return "{ %s }" % ", ".join(num(v) for v in srect(*r))
+    blvd_c = R3(*(diagA + dDir * (t0 + t1) / 2 + dOut * 15.25), 0)
+    parts_ = {
+        "bounds": rect((RW - 40, RS - 50, 445.0, RN + 50)),
+        "roads": "{ %s }" % ", ".join(rect(r) for r in ROAD_RECTS),
+        "blvd": "{ x = %s, z = %s, length = %s, width = %s, angle = %s }" % (
+            num(blvd_c[0]), num(blvd_c[2]), num((t1 - t0) * K), num(19.5 * K), num(-math.degrees(phi_road))),
+        "water": "{ %s }" % ", ".join(rect(r) for r in ((RE + RH + 52, RS - 300, 1000.0, RN + 300), LAKE)),
+        "sand": rect((RE + RH, RS - 300, RE + RH + 52, RN + 300)),
+        "parks": "{ %s }" % ", ".join(rect(r) for r in (BLOCKS["C4R3"],)),
+        "districts": "{ %s }" % ", ".join("{ %s, %s }" % (lua_str(n), rect(r)) for n, r in DISTRICTS[:9]),
+        "buildings": "{ %s }" % ", ".join("{ %s, %s }" % (lua_str(n), rect(r)) for n, r, _, _ in BUILDINGS),
+        "houses": "{ %s }" % ", ".join(rect(r) for _, r in HOUSES),
+        "mall": rect(mall_box),
+    }
+    return "{\n%s\n}" % ",\n".join("\t%s = %s" % kv for kv in parts_.items())
+
+
+fill["__DISCOVERIES__"] = lua_list(disc_rows())
+fill["__MAP__"] = map_data()
 
 
 def script_src(fname):
@@ -3495,7 +4530,12 @@ for f in sorted(SCRIPTS.glob("*.server.lua")):
     new(sss, "Script", f.name.split(".")[0], Source=("src", script_src(f.name)))
 rs = Inst("ReplicatedStorage", "ReplicatedStorage")
 game_items.append(rs)
-new(rs, "RemoteEvent", "Travel")
+for ev in ("Travel", "Passport", "Arcade", "Vendor"):
+    new(rs, "RemoteEvent", ev)
+rf = Inst("ReplicatedFirst", "ReplicatedFirst")
+game_items.append(rf)
+for f in sorted(SCRIPTS.glob("*.first.lua")):
+    new(rf, "LocalScript", f.name.split(".")[0], Source=("src", script_src(f.name)))
 for f in sorted(SCRIPTS.glob("*.module.lua")):
     new(rs, "ModuleScript", f.name.split(".")[0], Source=("src", script_src(f.name)))
 sp = Inst("StarterPlayer", "StarterPlayer")
@@ -3511,5 +4551,19 @@ for item in game_items:
     write_item(item, out)
 out.append("</roblox>")
 OUT.write_text("\n".join(out))
+
+# the same city as one model, for copying into the live place (see PUBLISH.md): a Folder
+# "__Transfer" holding a folder per service with that service's contents
+TRANSFER = ROOT / "GlassCity_Transfer.rbxmx"
+transfer = Inst("Folder", "__Transfer")
+for svc in (ws, lighting, sss, rs, rf):
+    new(transfer, "Folder", svc.name).kids = list(svc.kids)
+new(transfer, "Folder", "StarterPlayerScripts").kids = list(sps.kids)
+out = ['<roblox xmlns:xmime="http://www.w3.org/2005/05/xmlmime" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" '
+       'xsi:noNamespaceSchemaLocation="http://www.roblox.com/roblox.xsd" version="4">']
+write_item(transfer, out)
+out.append("</roblox>")
+TRANSFER.write_text("\n".join(out))
 if __name__ == "__main__":
     print("wrote %s: %d parts, %d KB" % (OUT.name, len(PARTS), OUT.stat().st_size // 1024))
+    print("wrote %s: %d KB" % (TRANSFER.name, TRANSFER.stat().st_size // 1024))

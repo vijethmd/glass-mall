@@ -37,7 +37,7 @@ end
 
 local card = Instance.new("Frame")
 card.AnchorPoint = Vector2.new(0.5, 0)
-card.Size = UDim2.new(0, 360, 0, 196)
+card.Size = UDim2.new(0, 400, 0, 232)
 card.Position = UDim2.new(0.5, 0, 0, 64)
 card.BackgroundColor3 = Color3.fromRGB(14, 20, 24)
 card.BackgroundTransparency = 0.15
@@ -65,13 +65,13 @@ body.TextWrapped = true
 body.TextXAlignment = Enum.TextXAlignment.Left
 body.TextYAlignment = Enum.TextYAlignment.Top
 body.TextColor3 = Color3.fromRGB(225, 233, 236)
-body.Text = "Every building in Glass City has an inside: walk in.\n"
-	.. "Call a lift with E and pick a floor on the panel - ride the\n"
-	.. "Glass Spire express to its sky lounge and glass skywalk.\n"
-	.. "Get a car at a glowing pad. Travel (left) jumps anywhere."
+body.Text = "Every building has an inside, on every floor: walk in, call a lift with E and pick a floor.\n"
+	.. "Your Passport stamps each new place you find, for 3 coins.\n"
+	.. "Press E at counters for free food, play the arcade for coins, say hello to people.\n"
+	.. "M opens the map. Get a car at a glowing pad. Fireworks over the bay every night."
 body.Parent = card
 
-task.delay(16, function()
+task.delay(20, function()
 	TweenService:Create(card, TweenInfo.new(1), { Position = UDim2.new(0.5, 0, 0, -260) }):Play()
 end)
 
